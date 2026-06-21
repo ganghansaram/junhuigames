@@ -292,19 +292,34 @@ function resetGame() {
 // 8) 소리 (간단한 효과음)
 // ---------------------------------------------------------------------
 let ac = null;
+// 오디오 준비: 브라우저는 사용자가 한 번 클릭/터치하기 전에는 소리를 막아요.
+// 그래서 처음 상호작용할 때 오디오를 깨워(resume) 줍니다.
+function initAudio() {
+  try {
+    if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+    if (ac.state === "suspended") ac.resume();
+  } catch (e) {}
+}
 function beep(freq, dur, type, vol) {
   if (muted) return;
   try {
-    if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+    initAudio();
+    if (!ac) return;
+    if (ac.state === "suspended") ac.resume();   // 혹시 잠들어 있으면 깨우기
     const o = ac.createOscillator(), g = ac.createGain();
     o.type = type || "square"; o.frequency.value = freq;
-    g.gain.value = vol || 0.05;
+    const v = (vol || 0.05) * 2;                  // 조금 더 잘 들리도록
+    g.gain.setValueAtTime(0.0001, ac.currentTime);
+    g.gain.exponentialRampToValueAtTime(v, ac.currentTime + 0.01);
     o.connect(g); g.connect(ac.destination);
     o.start();
     g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + dur);
-    o.stop(ac.currentTime + dur);
+    o.stop(ac.currentTime + dur + 0.02);
   } catch (e) {}
 }
+// 첫 클릭/키 입력 때 오디오를 깨웁니다(브라우저 자동재생 정책 대응).
+["pointerdown", "keydown", "touchstart"].forEach(ev =>
+  window.addEventListener(ev, initAudio, { once: false }));
 
 // ---------------------------------------------------------------------
 // 9) 적/고양이/총알 동작
