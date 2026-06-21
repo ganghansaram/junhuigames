@@ -70,10 +70,11 @@
   .catbtn:hover { background: #3a2d6b; }
   .catbtn.selected { border-color: #ffd24a; background: #3a2d6b; }
   .catbtn.locked { opacity: .45; cursor: not-allowed; }
-  .catbtn .ico { font-size: 20px; width: 24px; text-align: center; }
+  .catbtn .ico { font-size: 19px; width: 28px; height: 28px; line-height: 26px; text-align: center; border-radius: 7px; }
   .catbtn .info { flex: 1; min-width: 0; }
   .catbtn .nmrow { display: flex; justify-content: space-between; align-items: baseline; }
   .catbtn .nm { font-size: 12px; font-weight: bold; }
+  .catbtn .rar { font-size: 9px; font-weight: bold; }
   .catbtn .cost { font-size: 12px; color: #ffd24a; font-weight: bold; }
   .catbtn .stats { font-size: 11px; color: #ffd27a; letter-spacing: -0.3px; }
   button.big {
@@ -330,7 +331,7 @@ let money, lives, waveIndex, state; // state: ready/build/wave/won/lost
 let enemies, projectiles, effects, particles;
 let selectedShop = null;   // 상점에서 고른 고양이 종류
 let selectedCat = null;    // 필드에서 고른(배치된) 고양이
-let spawnQueue, spawnIdx, spawnClock;
+let spawnQueue, spawnIdx, spawnClock, waveTotal = 0;
 let gameSpeed = 1, paused = false, muted = false;
 let mouse = {x:-99,y:-99};
 let shake = 0, hurtFlash = 0;   // 화면 흔들림 / 피격(우리집) 붉은 섬광
@@ -620,6 +621,7 @@ function startWave() {
     t += 0.6;
   }
   spawnIdx = 0; spawnClock = 0; state = "wave";
+  waveTotal = spawnQueue.length;        // 진행바 계산용 총 적 수
   updateHUD();
 }
 
@@ -687,11 +689,14 @@ function render() {
   for (let y=0;y<FIELD_H;y+=24) for (let x=((y/24)%2)*24;x<FIELD_W;x+=48)
     ctx.fillRect(x,y,24,24);
 
+  drawScenery();
   drawPath();
+  drawPortal();
   drawSlots();
 
   // 적
   for (const e of enemies) drawEnemy(e);
+  drawBase();                                  // 우리집(적이 뒤로 사라짐)
   // 고양이
   for (const s of SLOTS) if (s.cat) drawCat(s.cat);
   // 발사체 (고양이마다 모양이 달라요)
@@ -719,6 +724,53 @@ function render() {
   // 은은한 비네팅(요즘 게임 느낌)
   if (!VIGNETTE) buildVignette();
   ctx.drawImage(VIGNETTE, 0, 0);
+
+  drawTopBar();   // 상단 웨이브 진행바 + 다음 적 미리보기
+}
+
+// 현재/다음 웨이브의 적 구성 요약 {type:count}
+function waveSummary(idx) {
+  const m = {};
+  if (idx < 0 || idx >= WAVES.length) return m;
+  for (const g of WAVES[idx]) m[g.type] = (m[g.type] || 0) + g.count;
+  return m;
+}
+function drawTopBar() {
+  if (state !== "build" && state !== "wave") return;
+  const bw = 392, bh = 40, bx = (FIELD_W - bw) / 2, by = 8;
+  ctx.save();
+  ctx.fillStyle = "rgba(20,14,40,.78)"; roundRect(bx, by, bw, bh, 12); ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,.15)"; ctx.lineWidth = 1; roundRect(bx, by, bw, bh, 12); ctx.stroke();
+
+  ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  ctx.fillStyle = "#ffd24a"; ctx.font = "bold 15px sans-serif";
+  ctx.fillText(`🌊 WAVE ${Math.min(waveIndex+1, WAVES.length)}/${WAVES.length}`, bx+12, by+bh/2);
+
+  if (state === "wave") {
+    // 진행바
+    const total = waveTotal || 1;
+    const remain = (spawnQueue.length - spawnIdx) + enemies.length;
+    const prog = Math.max(0, Math.min(1, 1 - remain / total));
+    const px0 = bx+118, pw = 180, py0 = by+bh/2-6;
+    ctx.fillStyle = "rgba(0,0,0,.4)"; roundRect(px0, py0, pw, 12, 6); ctx.fill();
+    ctx.fillStyle = "#54d27a"; roundRect(px0, py0, pw*prog, 12, 6); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText(`${Math.round(prog*100)}%`, px0+pw+22, by+bh/2);
+  } else {
+    // 다음 웨이브 적 미리보기
+    ctx.fillStyle = "#cdbff2"; ctx.font = "12px sans-serif";
+    ctx.fillText("다음:", bx+118, by+bh/2);
+    const sum = waveSummary(waveIndex);
+    let ix = bx+158;
+    for (const type of Object.keys(sum)) {
+      const grid = ENEMY_GRIDS[ENEMY_TYPES[type].art];
+      drawSprite(grid, enemyPalette(ENEMY_TYPES[type]), ix, by+bh/2, 1.5);
+      ctx.fillStyle = "#fff"; ctx.font = "bold 12px sans-serif"; ctx.textAlign = "left";
+      ctx.fillText("×" + sum[type], ix+14, by+bh/2);
+      ix += 52;
+    }
+  }
+  ctx.restore();
 }
 
 let VIGNETTE = null;
@@ -735,16 +787,88 @@ function buildVignette() {
 
 function drawPath() {
   ctx.lineJoin = "round"; ctx.lineCap = "round";
-  ctx.strokeStyle = "#c7a86a"; ctx.lineWidth = 50;
+  ctx.strokeStyle = "#9c7e4e"; ctx.lineWidth = 54;   // 길 테두리(curb)
   pathStroke();
-  ctx.strokeStyle = "#d8bd86"; ctx.lineWidth = 36;
+  ctx.strokeStyle = "#c7a86a"; ctx.lineWidth = 48;
   pathStroke();
+  ctx.strokeStyle = "#d8bd86"; ctx.lineWidth = 34;
+  pathStroke();
+  // 길 위 자갈 점선 무늬
+  ctx.strokeStyle = "rgba(155,126,78,.5)"; ctx.lineWidth = 4;
+  ctx.setLineDash([2, 22]); pathStroke(); ctx.setLineDash([]);
 }
 function pathStroke() {
   ctx.beginPath();
   ctx.moveTo(WAYPOINTS[0].x, WAYPOINTS[0].y);
   for (let i=1;i<WAYPOINTS.length;i++) ctx.lineTo(WAYPOINTS[i].x, WAYPOINTS[i].y);
   ctx.stroke();
+}
+
+// ===== 배경 소품(나무·덤불·바위·꽃) =====
+const PROPS = [
+  {k:"tree",x:55,y:44},{k:"tree",x:300,y:40},{k:"tree",x:660,y:48},
+  {k:"bush",x:150,y:52},{k:"bush",x:430,y:52},{k:"bush",x:600,y:38},{k:"bush",x:35,y:556},
+  {k:"rock",x:34,y:470},
+  {k:"flower",x:28,y:200,c:"#ff7aa8"},{k:"flower",x:30,y:340,c:"#ffe14a"},
+  {k:"flower",x:220,y:56,c:"#ffffff"},{k:"flower",x:520,y:54,c:"#ff7aa8"},
+  {k:"flower",x:120,y:50,c:"#9be0ff"},{k:"flower",x:380,y:56,c:"#ffe14a"},
+];
+function drawScenery() {
+  for (const p of PROPS) {
+    if (p.k === "tree") {
+      ctx.fillStyle = "rgba(0,0,0,.12)"; ctx.beginPath(); ctx.ellipse(p.x, p.y+22, 14, 4, 0, 0, 6.29); ctx.fill();
+      ctx.fillStyle = "#7a5230"; ctx.fillRect(p.x-3, p.y+4, 6, 16);
+      ctx.fillStyle = "#3f8f3a"; circle(p.x, p.y-6, 15); circle(p.x-10, p.y+2, 11); circle(p.x+10, p.y+2, 11);
+      ctx.fillStyle = "#4fa944"; circle(p.x-3, p.y-9, 8); circle(p.x+5, p.y-3, 7);
+    } else if (p.k === "bush") {
+      ctx.fillStyle = "rgba(0,0,0,.1)"; ctx.beginPath(); ctx.ellipse(p.x, p.y+8, 16, 4, 0, 0, 6.29); ctx.fill();
+      ctx.fillStyle = "#3f8f3a"; circle(p.x-8, p.y, 9); circle(p.x+8, p.y, 9); circle(p.x, p.y-4, 11);
+      ctx.fillStyle = "#4fa944"; circle(p.x-3, p.y-4, 6);
+    } else if (p.k === "rock") {
+      ctx.fillStyle = "rgba(0,0,0,.1)"; ctx.beginPath(); ctx.ellipse(p.x, p.y+7, 14, 4, 0, 0, 6.29); ctx.fill();
+      ctx.fillStyle = "#9aa0aa"; circle(p.x, p.y, 11); ctx.fillStyle = "#b6bcc6"; circle(p.x-3, p.y-3, 6);
+    } else { // flower
+      ctx.strokeStyle = "#3f8f3a"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(p.x, p.y+6); ctx.lineTo(p.x, p.y); ctx.stroke();
+      ctx.fillStyle = p.c;
+      for (let a = 0; a < 5; a++) { const an = a/5*6.28; circle(p.x+Math.cos(an)*3, p.y+Math.sin(an)*3, 2.4); }
+      ctx.fillStyle = "#ffd24a"; circle(p.x, p.y, 1.8);
+    }
+  }
+}
+function circle(x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, 6.29); ctx.fill(); }
+
+// ===== 입구 포털(적 등장) =====
+function drawPortal() {
+  const x = 6, y = 90;
+  ctx.fillStyle = "#5a4a86"; ctx.beginPath(); ctx.ellipse(x, y, 16, 26, 0, 0, 6.29); ctx.fill();
+  ctx.fillStyle = "#2a2150"; ctx.beginPath(); ctx.ellipse(x, y, 10, 20, 0, 0, 6.29); ctx.fill();
+  ctx.fillStyle = "#7a68b0";
+  for (let i = -2; i <= 2; i++) { ctx.fillRect(x-3, y + i*9 - 2, 7, 4); }
+}
+
+// ===== 지켜야 할 우리집(기지) =====
+function drawBase() {
+  const x = 700, y = 552;
+  ctx.fillStyle = "rgba(0,0,0,.18)"; ctx.beginPath(); ctx.ellipse(x, y+26, 30, 7, 0, 0, 6.29); ctx.fill();
+  ctx.fillStyle = "#e9d9b0"; roundRect(x-24, y-6, 48, 32, 4); ctx.fill();   // 벽
+  ctx.fillStyle = "#c94f4f"; ctx.beginPath();                              // 지붕
+  ctx.moveTo(x-30, y-4); ctx.lineTo(x, y-30); ctx.lineTo(x+30, y-4); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = "#8a5a3a"; roundRect(x-7, y+8, 14, 18, 2); ctx.fill();   // 문
+  ctx.fillStyle = "#7fd0ff"; ctx.fillRect(x-18, y+2, 9, 9); ctx.fillRect(x+9, y+2, 9, 9); // 창문
+  // 하트 + 남은 목숨
+  ctx.fillStyle = "#ff5a7a"; heart(x, y-22, 5);
+  ctx.fillStyle = "#fff"; ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center";
+  ctx.fillText(lives, x, y-18);
+}
+function heart(x, y, s) {
+  ctx.beginPath();
+  ctx.moveTo(x, y + s*0.7);
+  ctx.bezierCurveTo(x, y, x - s, y - s*0.2, x - s, y - s*0.5);
+  ctx.bezierCurveTo(x - s, y - s, x, y - s, x, y - s*0.4);
+  ctx.bezierCurveTo(x, y - s, x + s, y - s, x + s, y - s*0.5);
+  ctx.bezierCurveTo(x + s, y - s*0.2, x, y, x, y + s*0.7);
+  ctx.fill();
 }
 
 function drawSlots() {
@@ -1193,15 +1317,24 @@ function speedStars(cd) {
 function statLine(t) {
   return `🎯${t.range}　⚔️${t.damage}　⚡${speedStars(t.cooldown)}`;
 }
+// 가격대로 등급(희귀도) 색을 정해 카드 느낌을 줍니다.
+function rarity(cost) {
+  if (cost <= 80)  return {name:"일반",   col:"#9aa0aa"};
+  if (cost <= 180) return {name:"고급",   col:"#4fa9ff"};
+  if (cost <= 300) return {name:"희귀",   col:"#b06fe0"};
+  return {name:"전설", col:"#ffc23a"};
+}
 function buildShop() {
   shopEl.innerHTML = "";
   for (const t of CAT_TYPES) {
+    const r = rarity(t.cost);
     const b = document.createElement("div");
     b.className = "catbtn"; b.dataset.id = t.id;
     b.title = t.desc;   // 마우스를 올리면 설명이 풍선으로 뜸
-    b.innerHTML = `<div class="ico">${t.ico}</div>
+    b.style.borderLeft = `5px solid ${r.col}`;
+    b.innerHTML = `<div class="ico" style="background:${r.col}22;border:1.5px solid ${r.col}66">${t.ico}</div>
       <div class="info">
-        <div class="nmrow"><span class="nm">${t.name}</span><span class="cost">💰${t.cost}</span></div>
+        <div class="nmrow"><span class="nm">${t.name} <span class="rar" style="color:${r.col}">●${r.name}</span></span><span class="cost">💰${t.cost}</span></div>
         <div class="stats">${statLine(t)}</div>
       </div>`;
     b.addEventListener("click", () => {
