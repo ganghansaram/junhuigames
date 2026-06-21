@@ -432,7 +432,7 @@ function spawnEnemy(type) {
     type, ...t, hp: t.hp, maxHp: t.hp,
     x: WAYPOINTS[0].x, y: WAYPOINTS[0].y,
     wp: 1, traveled: 0, slowTimer: 0, slowFactor: 1, dead: false,
-    wob: Math.random() * 6.28, flash: 0,
+    wob: Math.random() * 6.28, flash: 0, face: 1,
   });
 }
 
@@ -442,12 +442,15 @@ function updateEnemy(e, dt) {
   if (e.slowTimer > 0) e.slowTimer -= dt;
   const sp = e.speed * (e.slowTimer > 0 ? e.slowFactor : 1);
   let move = sp * dt;
+  const startX = e.x;                          // 이동 방향(좌우)을 알아내기 위해
   while (move > 0 && e.wp < WAYPOINTS.length) {
     const tx = WAYPOINTS[e.wp].x, ty = WAYPOINTS[e.wp].y;
     const dx = tx - e.x, dy = ty - e.y, d = Math.hypot(dx, dy);
     if (d <= move) { e.x = tx; e.y = ty; e.traveled += d; move -= d; e.wp++; }
     else { e.x += dx / d * move; e.y += dy / d * move; e.traveled += move; move = 0; }
   }
+  const movedX = e.x - startX;                 // 가로로 움직였으면 그 방향을 바라봄
+  if (Math.abs(movedX) > 0.01) e.face = movedX > 0 ? 1 : -1;
   if (e.wp >= WAYPOINTS.length) { // 우리집 도착!
     lives -= e.leak; e.dead = true;
     beep(110, 0.18, "sawtooth", 0.06);
@@ -471,22 +474,41 @@ function damageEnemy(e, dmg) {
   }
 }
 
-function fire(c, target) {
+// ===== 고양이 업그레이드: 레벨에 따른 '실제 스탯' 계산 =====
+const MAX_LEVEL = 3;
+function catStat(c) {
   const t = CAT_BY_ID[c.type];
+  const L = (c.level || 1) - 1;                 // 0,1,2
+  return {
+    ...t,
+    range:    t.range    * (1 + 0.12 * L),      // 사거리 +12%/레벨
+    damage:   Math.round(t.damage * (1 + 0.6 * L)), // 공격력 +60%/레벨
+    cooldown: t.cooldown * (1 - 0.12 * L),      // 연사 12%씩 빨라짐
+    splash:   t.splash ? Math.round(t.splash * (1 + 0.12 * L)) : 0,
+  };
+}
+// 다음 레벨로 올리는 비용 (현재 레벨 기준)
+function upgradeCost(c) {
+  const base = CAT_BY_ID[c.type].cost;
+  return Math.ceil(base * (c.level === 1 ? 0.9 : 1.5));
+}
+
+function fire(c, target) {
+  const s = catStat(c);
   projectiles.push({
-    x: c.x, y: c.y, target, speed: t.projSpeed, damage: t.damage,
-    splash: t.splash || 0, slow: t.slow || 0, slowTime: t.slowTime || 0,
-    color: t.proj, shape: t.shape || "fish", dead: false,
+    x: c.x, y: c.y, target, speed: s.projSpeed, damage: s.damage,
+    splash: s.splash || 0, slow: s.slow || 0, slowTime: s.slowTime || 0,
+    color: s.proj, shape: s.shape || "fish", dead: false,
     angle: 0, spin: Math.random() * 6.28, trail: [],
   });
   // 고양이마다 발사 소리도 살짝 다르게
   const sfx = { basic:[520,0.04,"square"], sniper:[880,0.05,"triangle"],
                 snow:[700,0.05,"sine"], lion:[300,0.06,"sawtooth"], tiger:[200,0.07,"sawtooth"] };
-  const s = sfx[t.id]; if (s) beep(s[0], s[1], s[2], 0.03);
+  const sx = sfx[c.type]; if (sx) beep(sx[0], sx[1], sx[2], 0.03);
 }
 
 function updateCat(c, dt) {
-  const t = CAT_BY_ID[c.type];
+  const s = catStat(c);
   c.cd -= dt;
   if (c.firePop > 0) c.firePop -= dt;        // 발사 점프 애니메이션 타이머
   // 사거리 안에서 '가장 앞서간' 적을 노립니다.
@@ -494,12 +516,11 @@ function updateCat(c, dt) {
   for (const e of enemies) {
     if (e.dead) continue;
     const d = Math.hypot(e.x - c.x, e.y - c.y);
-    if (d <= t.range && e.traveled > bestT) { best = e; bestT = e.traveled; }
+    if (d <= s.range && e.traveled > bestT) { best = e; bestT = e.traveled; }
   }
   c.target = best;
-  // 부드럽게 적 쪽을 바라보게(꼬리 흔들 듯) 살짝 기울임
   if (best) c.face = Math.sign(best.x - c.x) || c.face || 1;
-  if (best && c.cd <= 0) { c.cd = t.cooldown; c.firePop = 0.16; fire(c, best); }
+  if (best && c.cd <= 0) { c.cd = s.cooldown; c.firePop = 0.16; fire(c, best); }
 }
 
 function updateProjectile(p, dt) {
@@ -612,7 +633,7 @@ function render() {
   // 고양이
   for (const s of SLOTS) if (s.cat) drawCat(s.cat);
   // 선택된 고양이의 사거리 표시
-  if (selectedCat) drawRange(selectedCat.x, selectedCat.y, CAT_BY_ID[selectedCat.type].range, "#ffffff");
+  if (selectedCat) drawRange(selectedCat.x, selectedCat.y, catStat(selectedCat).range, "#ffffff");
   // 효과
   for (const f of effects) drawEffect(f);
   // 배치 미리보기(상점에서 고른 상태로 빈 칸에 마우스 올림)
@@ -665,12 +686,35 @@ function drawCat(c) {
   const bob = Math.sin((performance.now()/260) + (c.x + c.y)) * 1.2;   // 평소 숨쉬기
   const hop = (c.firePop > 0) ? -Math.sin((c.firePop / 0.16) * Math.PI) * 5 : 0; // 발사 점프
   const x = c.x, y = c.y + bob + hop;
+  const lvl = c.level || 1;
   // 바닥 그림자(흔들리지 않게 원래 위치 기준)
   ctx.fillStyle = "rgba(0,0,0,.18)";
   ctx.beginPath(); ctx.ellipse(x, c.y + 22, 15, 4.5, 0, 0, 6.29); ctx.fill();
+  // Lv3은 황금빛 광채
+  if (lvl >= 3) {
+    const glow = 0.25 + Math.sin(performance.now()/200)*0.1;
+    ctx.globalAlpha = glow; ctx.fillStyle = "#ffe14a";
+    ctx.beginPath(); ctx.arc(x, y, 26, 0, 6.29); ctx.fill(); ctx.globalAlpha = 1;
+  }
   decorateBehind(t, x, y);                 // 꼬리·갈기·망토 (몸 뒤)
   drawSprite(CAT_GRID, catPalette(t), x, y, 3);
   decorateFront(c, t, x, y);               // 목걸이·가면·왕관 등 (몸 앞)
+  // 레벨 별 표시 (머리 위)
+  for (let i = 0; i < lvl; i++) {
+    const sx = x - (lvl - 1) * 4 + i * 8, sy = y - 30;
+    ctx.fillStyle = "#ffd24a"; ctx.strokeStyle = "#7a5a10"; ctx.lineWidth = 1;
+    star(sx, sy, 3.4, 1.6); ctx.fill(); ctx.stroke();
+  }
+}
+// 작은 별 모양 경로
+function star(cx, cy, outer, inner) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const r = i % 2 ? inner : outer, a = -Math.PI/2 + i * Math.PI/5;
+    const px = cx + Math.cos(a) * r, py = cy + Math.sin(a) * r;
+    i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+  }
+  ctx.closePath();
 }
 
 // 몸 뒤에 그리는 장식(꼬리, 사자 갈기, 호랑이 망토)
@@ -832,118 +876,117 @@ function drawEnemy(e) {
   const grid = ENEMY_GRIDS[e.art];
   const gw = grid[0].length, gh = grid.length, px = e.px;
   const wob = Math.sin(e.wob) * 1.5;
-  const x = e.x, y = e.y + wob;
 
-  // 바닥 그림자
+  // 바닥 그림자 (뒤집지 않음, 원래 자리)
   ctx.fillStyle = "rgba(0,0,0,.16)";
-  ctx.beginPath(); ctx.ellipse(x, e.y + gh*px*0.42, gw*px*0.34, px*1.4, 0, 0, 6.29); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(e.x, e.y + gh*px*0.42, gw*px*0.34, px*1.4, 0, 0, 6.29); ctx.fill();
 
-  decorateEnemyBehind(e, x, y);                 // 박쥐 날개·꼬리 등 (뒤)
-  drawSprite(grid, enemyPalette(e), x, y, px);
-  decorateEnemyFront(e, x, y);                  // 눈썹·소품 등 (앞)
-
-  // 느려진 적은 파랗게 얼음 표시
-  if (e.slowTimer > 0) {
-    ctx.globalAlpha = 0.35;
-    drawSprite(grid, ICE_PAL, x, y, px);
-    ctx.globalAlpha = 1;
+  // 몸+장식은 '가는 방향'으로 좌우 반전해서 그립니다.
+  ctx.save();
+  ctx.translate(e.x, e.y + wob);
+  ctx.scale(e.face || 1, 1);
+  decorateEnemyBehind(e);                       // 박쥐 날개·꼬리 등 (뒤)
+  drawSprite(grid, enemyPalette(e), 0, 0, px);
+  decorateEnemyFront(e);                         // 눈썹·소품 등 (앞)
+  if (e.slowTimer > 0) {                         // 얼음(느려짐) 표시
+    ctx.globalAlpha = 0.35; drawSprite(grid, ICE_PAL, 0, 0, px); ctx.globalAlpha = 1;
     ctx.fillStyle = "#ffffff";
-    ctx.fillRect(x - gw*px*0.3, y - gh*px*0.3, 2, 2);
-    ctx.fillRect(x + gw*px*0.2, y + gh*px*0.1, 2, 2);
+    ctx.fillRect(-gw*px*0.3, -gh*px*0.3, 2, 2); ctx.fillRect(gw*px*0.2, gh*px*0.1, 2, 2);
   }
-  // 맞은 순간 하얗게 번쩍
-  if (e.flash > 0) {
+  if (e.flash > 0) {                            // 피격 번쩍
     ctx.globalAlpha = Math.min(1, e.flash / 0.1) * 0.8;
-    drawSprite(grid, WHITE_PAL, x, y, px);
-    ctx.globalAlpha = 1;
+    drawSprite(grid, WHITE_PAL, 0, 0, px); ctx.globalAlpha = 1;
   }
-  // 체력바
+  ctx.restore();
+
+  // 체력바 (뒤집지 않음)
   if (e.hp < e.maxHp) {
-    const w = Math.max(26, gw*px*0.7), bx = x - w/2, by = e.y - gh*px*0.6 - 6;
+    const w = Math.max(26, gw*px*0.7), bx = e.x - w/2, by = e.y - gh*px*0.6 - 6;
     ctx.fillStyle = "#2a1f3a"; ctx.fillRect(bx-1, by-1, w+2, 6);
     ctx.fillStyle = "#e74c4c"; ctx.fillRect(bx, by, w, 4);
     ctx.fillStyle = "#5ee06a"; ctx.fillRect(bx, by, w * Math.max(0,e.hp)/e.maxHp, 4);
   }
 }
 
-// 적의 몸 뒤 장식 (꼬리, 박쥐 날개)
-function decorateEnemyBehind(e, x, y) {
+// 적의 몸 뒤 장식 (중심 0,0 기준 / 꼬리는 뒤쪽으로)
+function decorateEnemyBehind(e) {
   ctx.save();
+  const px = e.px;
   if (e.style === "bat") {                       // 펄럭이는 날개
     const flap = Math.sin(performance.now()/90) * 6;
-    const w = e.px*6;
+    const w = px*6;
     ctx.fillStyle = e.dark; ctx.strokeStyle = e.outline; ctx.lineWidth = 1;
     [-1, 1].forEach(s => {
       ctx.beginPath();
-      ctx.moveTo(x + s*5, y - 2);
-      ctx.lineTo(x + s*(5+w), y - w*0.5 - flap);
-      ctx.lineTo(x + s*(5+w), y + 2);
-      ctx.lineTo(x + s*(5+w*0.6), y - 1);
-      ctx.lineTo(x + s*(5+w*0.7), y + 5);
+      ctx.moveTo(s*5, -2);
+      ctx.lineTo(s*(5+w), -w*0.5 - flap);
+      ctx.lineTo(s*(5+w), 2);
+      ctx.lineTo(s*(5+w*0.6), -1);
+      ctx.lineTo(s*(5+w*0.7), 5);
       ctx.closePath(); ctx.fill();
     });
-  } else if (e.style === "mouse") {              // 긴 꼬리
-    const sway = Math.sin(performance.now()/240 + x) * 4;
+  } else if (e.style === "mouse") {              // 긴 꼬리(뒤쪽=왼쪽)
+    const sway = Math.sin(performance.now()/240 + e.x) * 4;
     ctx.strokeStyle = e.dark; ctx.lineWidth = 2.5; ctx.lineCap = "round";
-    ctx.beginPath(); ctx.moveTo(x-2, y+16);
-    ctx.quadraticCurveTo(x-16, y+18, x-15 - sway, y+4); ctx.stroke();
-  } else {                                        // 강아지류 흔드는 꼬리
-    const sway = Math.sin(performance.now()/160 + x) * 5;
-    ctx.strokeStyle = e.outline; ctx.lineWidth = e.px*1.6; ctx.lineCap = "round";
-    const bx = x + e.px*5.5, by = y + e.px*2;
+    ctx.beginPath(); ctx.moveTo(-2, 16);
+    ctx.quadraticCurveTo(-16, 18, -15 - sway, 4); ctx.stroke();
+  } else {                                        // 강아지류 흔드는 꼬리(뒤쪽=왼쪽)
+    const sway = Math.sin(performance.now()/160 + e.x) * 5;
+    const bx = -px*5.5, by = px*2;
+    ctx.strokeStyle = e.outline; ctx.lineWidth = px*1.6; ctx.lineCap = "round";
     ctx.beginPath(); ctx.moveTo(bx, by);
-    ctx.quadraticCurveTo(bx + e.px*2, by - e.px*2, bx + e.px*2 + sway, by - e.px*4); ctx.stroke();
-    ctx.strokeStyle = e.body; ctx.lineWidth = e.px*0.9;
+    ctx.quadraticCurveTo(bx - px*2, by - px*2, bx - px*2 + sway, by - px*4); ctx.stroke();
+    ctx.strokeStyle = e.body; ctx.lineWidth = px*0.9;
     ctx.beginPath(); ctx.moveTo(bx, by);
-    ctx.quadraticCurveTo(bx + e.px*2, by - e.px*2, bx + e.px*2 + sway, by - e.px*4); ctx.stroke();
+    ctx.quadraticCurveTo(bx - px*2, by - px*2, bx - px*2 + sway, by - px*4); ctx.stroke();
   }
   ctx.restore();
 }
 
-// 적의 몸 앞 장식 (장난꾸러기 눈썹, 보스 왕관·안대 등)
-function decorateEnemyFront(e, x, y) {
+// 적의 몸 앞 장식 (중심 0,0 기준)
+function decorateEnemyFront(e) {
   ctx.save();
   const px = e.px, gh = ENEMY_GRIDS[e.art].length;
   if (e.style === "mouse") {                     // 짓궂은 눈썹 + 수염
     ctx.strokeStyle = e.dark; ctx.lineWidth = 1.5; ctx.lineCap = "round";
-    ctx.beginPath(); ctx.moveTo(x-9, y-8); ctx.lineTo(x-4, y-6); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(x+9, y-8); ctx.lineTo(x+4, y-6); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-9, -8); ctx.lineTo(-4, -6); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(9, -8); ctx.lineTo(4, -6); ctx.stroke();
     ctx.strokeStyle = "rgba(255,255,255,.7)"; ctx.lineWidth = 1;
     [-1,1].forEach(s => { ctx.beginPath();
-      ctx.moveTo(x + s*4, y+4); ctx.lineTo(x + s*16, y+2); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(x + s*4, y+6); ctx.lineTo(x + s*16, y+7); ctx.stroke(); });
+      ctx.moveTo(s*4, 4); ctx.lineTo(s*16, 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(s*4, 6); ctx.lineTo(s*16, 7); ctx.stroke(); });
   } else if (e.style === "bat") {                // 작은 송곳니
     ctx.fillStyle = "#ffffff";
-    ctx.beginPath(); ctx.moveTo(x-3, y+6); ctx.lineTo(x-1, y+6); ctx.lineTo(x-2, y+10); ctx.closePath(); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(x+1, y+6); ctx.lineTo(x+3, y+6); ctx.lineTo(x+2, y+10); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-3, 6); ctx.lineTo(-1, 6); ctx.lineTo(-2, 10); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(1, 6); ctx.lineTo(3, 6); ctx.lineTo(2, 10); ctx.closePath(); ctx.fill();
   } else {                                        // 강아지 계열 = 짓궂은 눈썹
     ctx.strokeStyle = e.outline; ctx.lineWidth = 2; ctx.lineCap = "round";
-    const ey = y - px*3;
-    ctx.beginPath(); ctx.moveTo(x - px*4, ey - px); ctx.lineTo(x - px*1.5, ey); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(x + px*4, ey - px); ctx.lineTo(x + px*1.5, ey); ctx.stroke();
+    const ey = -px*3;
+    ctx.beginPath(); ctx.moveTo(-px*4, ey - px); ctx.lineTo(-px*1.5, ey); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(px*4, ey - px); ctx.lineTo(px*1.5, ey); ctx.stroke();
   }
   if (e.style === "bigdog") {                    // 가시 목걸이
-    const cy = y + px*3.5;
-    ctx.fillStyle = "#444"; roundRect(x - px*5, cy, px*10, px*1.6, 2); ctx.fill();
+    const cy = px*3.5;
+    ctx.fillStyle = "#444"; roundRect(-px*5, cy, px*10, px*1.6, 2); ctx.fill();
     ctx.fillStyle = "#cfcfcf";
     for (let i = -2; i <= 2; i++) {
-      ctx.beginPath(); ctx.moveTo(x + i*px*2 - 2, cy + px*1.6);
-      ctx.lineTo(x + i*px*2 + 2, cy + px*1.6); ctx.lineTo(x + i*px*2, cy + px*3); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(i*px*2 - 2, cy + px*1.6);
+      ctx.lineTo(i*px*2 + 2, cy + px*1.6); ctx.lineTo(i*px*2, cy + px*3); ctx.closePath(); ctx.fill();
     }
   }
   if (e.style === "boss") {                       // 👑 가시왕관 + 안대 + 침
-    const topY = y - gh*px*0.5;
+    const topY = -gh*px*0.5;
     ctx.fillStyle = "#ffd24a";
     ctx.beginPath();
-    ctx.moveTo(x-px*5, topY+px*2); ctx.lineTo(x-px*5, topY-px*2); ctx.lineTo(x-px*2.5, topY);
-    ctx.lineTo(x, topY-px*3); ctx.lineTo(x+px*2.5, topY); ctx.lineTo(x+px*5, topY-px*2);
-    ctx.lineTo(x+px*5, topY+px*2); ctx.closePath(); ctx.fill();
+    ctx.moveTo(-px*5, topY+px*2); ctx.lineTo(-px*5, topY-px*2); ctx.lineTo(-px*2.5, topY);
+    ctx.lineTo(0, topY-px*3); ctx.lineTo(px*2.5, topY); ctx.lineTo(px*5, topY-px*2);
+    ctx.lineTo(px*5, topY+px*2); ctx.closePath(); ctx.fill();
     ctx.fillStyle = "#15151c";                    // 안대
-    ctx.fillRect(x + px*1.5, y - px*3.5, px*3.5, px*2.2);
+    ctx.fillRect(px*1.5, -px*3.5, px*3.5, px*2.2);
     ctx.strokeStyle = "#15151c"; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(x + px*1.5, y - px*4.5); ctx.lineTo(x + px*5.5, y - px*2.5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(px*1.5, -px*4.5); ctx.lineTo(px*5.5, -px*2.5); ctx.stroke();
     ctx.fillStyle = "#bfe6ff";                    // 침 한 방울
-    ctx.beginPath(); ctx.arc(x - px*3, y + px*4 + Math.sin(performance.now()/300)*2, px*0.8, 0, 6.29); ctx.fill();
+    ctx.beginPath(); ctx.arc(-px*3, px*4 + Math.sin(performance.now()/300)*2, px*0.8, 0, 6.29); ctx.fill();
   }
   ctx.restore();
 }
@@ -953,7 +996,7 @@ function drawEffect(f) {
   if (f.type === "coin") {
     ctx.globalAlpha = 1 - k; ctx.fillStyle = "#ffd24a";
     ctx.font = "bold 14px sans-serif"; ctx.textAlign = "center";
-    ctx.fillText("+" + f.val, f.x, f.y - 14 - k*16); ctx.globalAlpha = 1;
+    ctx.fillText(f.lvup ? "LV UP!" : ("+" + f.val), f.x, f.y - 14 - k*16); ctx.globalAlpha = 1;
   } else if (f.type === "ring") {
     ctx.globalAlpha = 1 - k; ctx.strokeStyle = "#fff7d0"; ctx.lineWidth = 3;
     ctx.beginPath(); ctx.arc(f.x, f.y, f.r*k, 0, 6.29); ctx.stroke(); ctx.globalAlpha = 1;
@@ -1018,7 +1061,8 @@ canvas.addEventListener("click", ev => {
   } else if (selectedShop) { // 상점 고양이를 고른 상태면 → 배치
     if (money >= selectedShop.cost) {
       money -= selectedShop.cost;
-      near.cat = { type: selectedShop.id, x: near.x, y: near.y, slot: near, cd: 0, face: 1 };
+      near.cat = { type: selectedShop.id, x: near.x, y: near.y, slot: near, cd: 0, face: 1,
+                   level: 1, invested: selectedShop.cost };
       beep(440, 0.08, "square", 0.05);
       selectedCat = near.cat; updateSelBox();
       updateHUD(); refreshShop();
@@ -1070,16 +1114,30 @@ function refreshShop() {
 function updateSelBox() {
   const box = document.getElementById("selBox");
   if (!selectedCat) { box.style.display = "none"; return; }
-  const t = CAT_BY_ID[selectedCat.type];
+  const c = selectedCat, t = CAT_BY_ID[c.type], s = catStat(c);
+  const lvStars = "★".repeat(c.level) + "☆".repeat(MAX_LEVEL - c.level);
+  const maxed = c.level >= MAX_LEVEL;
+  const cost = upgradeCost(c);
+  const canUp = !maxed && money >= cost;
   box.style.display = "block";
-  box.innerHTML = `<b>${t.ico} ${t.name}</b><br>
-    🎯 사거리 ${t.range} · ⚔️ 공격력 ${t.damage}<br>
-    ⚡ 연사 ${speedStars(t.cooldown)}<br>
-    ${t.splash?("💥 범위공격 "+t.splash+"<br>"):""}${t.slow?("🧊 느리게 만듦<br>"):""}
-    <button class="big" id="sellBtn">↩ 판매 (+💰${Math.floor(t.cost*0.6)})</button>`;
+  box.innerHTML = `<b>${t.ico} ${t.name}</b> <span style="color:#ffd24a">Lv.${c.level} ${lvStars}</span><br>
+    🎯 사거리 ${Math.round(s.range)} · ⚔️ 공격력 ${s.damage}<br>
+    ⚡ 연사 ${speedStars(s.cooldown)}<br>
+    ${s.splash?("💥 범위공격 "+s.splash+"<br>"):""}${s.slow?("🧊 느리게 만듦<br>"):""}
+    <button class="big" id="upBtn" ${canUp?"":"disabled"} style="width:100%;margin-top:6px;background:${maxed?'#4a5560':'#ffd24a'}">
+      ${maxed ? "⭐ 최고 레벨(MAX)" : `⬆ 업그레이드 → Lv.${c.level+1} (💰${cost})`}</button>
+    <button class="big" id="sellBtn">↩ 판매 (+💰${Math.floor(c.invested*0.6)})</button>`;
+
+  const upBtn = document.getElementById("upBtn");
+  if (upBtn && canUp) upBtn.onclick = () => {
+    money -= cost; c.invested += cost; c.level++;
+    beep(523,0.07,"square",0.05); beep(784,0.09,"square",0.05);
+    effects.push({type:"coin", x:c.x, y:c.y-20, t:0, life:0.8, val:0, lvup:true});
+    updateSelBox(); updateHUD(); refreshShop();
+  };
   document.getElementById("sellBtn").onclick = () => {
-    money += Math.floor(t.cost * 0.6);
-    selectedCat.slot.cat = null; selectedCat = null;
+    money += Math.floor(c.invested * 0.6);
+    c.slot.cat = null; selectedCat = null;
     updateSelBox(); updateHUD(); refreshShop();
     beep(330,0.08,"square",0.05);
   };
@@ -1091,6 +1149,15 @@ function updateHUD() {
   const sw = document.getElementById("startWave");
   sw.disabled = (state !== "build");
   sw.textContent = (state === "build") ? `▶ 웨이브 ${waveIndex+1} 시작` : "⚔ 방어 중...";
+  // 업그레이드 버튼 구매가능 여부를 매 프레임 가볍게 갱신 (selBox 통째 재생성 없이)
+  const upBtn = document.getElementById("upBtn");
+  if (upBtn && selectedCat && selectedCat.level < MAX_LEVEL) {
+    const can = money >= upgradeCost(selectedCat);
+    if (upBtn.disabled === can) {               // 상태가 바뀌었을 때만
+      upBtn.disabled = !can;
+      if (!upBtn.onclick && can) updateSelBox(); // 비활성→활성 시 핸들러 복구
+    }
+  }
   refreshShop();
 }
 
