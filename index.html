@@ -86,6 +86,12 @@
   .row { display: flex; gap: 5px; }
   .row button { flex: 1; background: #4b3c82; color:#fff; border:none; border-radius:8px;
     padding: 7px 2px; font-size: 12px; font-weight: bold; cursor: pointer; }
+  .row button.skill { background: #6a3aa0; padding: 8px 2px; }
+  .row button.skill.armed { background: #ff8a3a; color:#1b1530; box-shadow: 0 0 0 2px #ffd24a; }
+  .row button.skill:disabled { background: #3a3050; color:#8a82a8; cursor: default; }
+  #diffRow { display: flex; gap: 10px; }
+  #diffRow button { border:none; border-radius:12px; padding:14px 22px; font-size:18px;
+    font-weight:bold; cursor:pointer; color:#1b1530; }
   #selBox {
     background: #15102b; border-radius: 9px; padding: 7px 8px; font-size: 11px; line-height: 1.5;
     display: none;
@@ -125,6 +131,10 @@
 
     <button class="big" id="startWave">▶ 웨이브 시작</button>
     <div class="row">
+      <button id="skillMeteor" class="skill">🔥 불벼락</button>
+      <button id="skillBlizzard" class="skill">❄️ 눈보라</button>
+    </div>
+    <div class="row">
       <button id="speedBtn">⏩ 1x</button>
       <button id="pauseBtn">⏸</button>
       <button id="musicBtn">🎵</button>
@@ -134,15 +144,16 @@
     <div id="selBox"></div>
 
     <div class="hint">
-      적이 길 끝까지 가면 ❤️ 감소! 적을 잡아 💰를 모아 더 강한 고양이를 배치하세요. 🐱
+      적이 우리집🏠에 닿으면 ❤️ 감소! 💰를 모아 고양이를 배치·업그레이드하세요. 🐱
     </div>
   </div>
 
   <!-- 시작 / 게임오버 화면 -->
   <div id="overlay">
     <h2>🐱 고양이 영웅 디펜스</h2>
-    <p>밀려오는 쥐·강아지·박쥐 군단을 막아라!<br>영웅 고양이들을 배치해서 우리집을 지키자.</p>
-    <button id="overlayBtn">시작하기</button>
+    <p>밀려오는 군단을 막아라!<br>난이도를 골라 시작하세요.</p>
+    <div id="diffRow"></div>
+    <button id="overlayBtn" style="display:none">시작하기</button>
   </div>
 </div>
 
@@ -191,23 +202,23 @@ const CAT_TYPES = [
   { id:"basic",  name:"냥냥이",     ico:"🐱", cost:50,  body:"#f4a03f", outline:"#7a4a14",
     light:"#ffd9a0", markings:"#d4791f",
     range:90,  damage:7,  cooldown:0.40, projSpeed:380, proj:"#ffd27a",
-    shape:"fish", desc:"물고기🐟를 던져요. 짧은 사거리·빠른 연사" },
+    shape:"fish", air:false, desc:"물고기🐟를 던져요. 짧은 사거리·빠른 연사 (지상만)" },
   { id:"sniper", name:"검은 도둑냥", ico:"⚫", cost:140, body:"#3c3a4a", outline:"#16151f",
     light:"#6a6878", markings:"#3c3a4a",
     range:260, damage:55, cooldown:1.6,  projSpeed:720, proj:"#cfc6ff",
-    shape:"dart", desc:"발톱 표창🗡️! 사거리 최장·강한 한 방, 느린 연사" },
+    shape:"dart", air:true, desc:"발톱 표창🗡️! 사거리 최장·강한 한 방 (비행 가능)" },
   { id:"snow",   name:"눈송이냥",   ico:"❄️", cost:170, body:"#83d2ff", outline:"#2f7fb0",
     light:"#e8f8ff", markings:"#83d2ff",
     range:130, damage:6,  cooldown:0.80, projSpeed:420, proj:"#e6f7ff",
-    slow:0.40, slowTime:2.0, shape:"snowflake", desc:"눈송이❄️로 적을 꽁꽁 얼려 느리게!" },
+    slow:0.40, slowTime:2.0, shape:"snowflake", air:true, desc:"눈송이❄️로 적을 얼려 느리게! (비행 가능)" },
   { id:"lion",   name:"사자 갈기냥", ico:"🦁", cost:240, body:"#e8b13a", outline:"#8a5e10",
     light:"#f6dd9a", markings:"#e8b13a",
     range:115, damage:18, cooldown:1.0,  projSpeed:330, proj:"#ffcf52",
-    splash:60, shape:"fireball", desc:"불덩이🔥를 쏴 범위로 여러 적 동시 타격" },
+    splash:60, shape:"fireball", air:false, desc:"불덩이🔥로 범위 공격! 여러 적 동시 타격 (지상만)" },
   { id:"tiger",  name:"대장 호랑냥", ico:"🐯", cost:400, body:"#f0892a", outline:"#7a3a0a",
     light:"#ffd9a0", markings:"#3a2206",
     range:160, damage:80, cooldown:0.70, projSpeed:540, proj:"#ffb24a",
-    splash:45, shape:"orb", desc:"번개 기운⚡! 강한 데미지+범위, 긴 사거리" },
+    splash:45, shape:"orb", air:true, desc:"번개 기운⚡! 강한 데미지+범위 (비행 가능)" },
 ];
 const CAT_BY_ID = Object.fromEntries(CAT_TYPES.map(c => [c.id, c]));
 
@@ -222,9 +233,15 @@ const ENEMY_TYPES = {
   bat:    { name:"박쥐",    hp:46,   speed:120, reward:11,  leak:1,  px:3, art:"bat", style:"bat",
             body:"#9b6fd6", outline:"#5a3a8a", light:"#c4a4ee", dark:"#7a52b0", eye:"#ffe14a" },
   bigdog: { name:"큰 개",   hp:250,  speed:40,  reward:28,  leak:2,  px:4, art:"dog", style:"bigdog",
-            body:"#7a5a3a", outline:"#352314", light:"#b89a72", dark:"#4a3320", eye:"#15151c" },
+            armor:5, body:"#7a5a3a", outline:"#352314", light:"#b89a72", dark:"#4a3320", eye:"#15151c" },
+  // 🆕 비행 유령 — 지상만 공격하는 고양이는 못 맞혀요!
+  ghost:  { name:"유령",   hp:64,   speed:95,  reward:14,  leak:1,  px:3, art:"bat", style:"ghost", flying:true,
+            body:"#e2ecff", outline:"#93a6cf", light:"#ffffff", dark:"#c2d2ee", eye:"#8a6fd0" },
+  // 🆕 방패견 — 파란 보호막(방패)을 먼저 깨야 해요
+  shielddog:{ name:"방패견", hp:90,  speed:50,  reward:24,  leak:1,  px:4, art:"dog", style:"shielddog", shield:80,
+            body:"#5aa0a0", outline:"#2f6060", light:"#c2eaea", dark:"#3f7878", eye:"#15151c" },
   boss:   { name:"보스 불독", hp:1700, speed:28, reward:240, leak:10, px:6, art:"dog", style:"boss",
-            body:"#d2453f", outline:"#6e1c19", light:"#f0a09a", dark:"#a02f2b", eye:"#15151c" },
+            armor:8, body:"#d2453f", outline:"#6e1c19", light:"#f0a09a", dark:"#a02f2b", eye:"#15151c" },
 };
 
 // ---------------------------------------------------------------------
@@ -235,10 +252,10 @@ const WAVES = [
   [{type:"mouse",count:10,gap:0.7},{type:"dog",count:3,gap:1.2}],
   [{type:"dog",count:8,gap:0.9},{type:"bat",count:5,gap:0.8}],
   [{type:"bat",count:10,gap:0.6},{type:"dog",count:7,gap:0.8}],
-  [{type:"bigdog",count:4,gap:1.6},{type:"mouse",count:16,gap:0.4}],
-  [{type:"bat",count:14,gap:0.5},{type:"bigdog",count:6,gap:1.2}],
-  [{type:"dog",count:14,gap:0.5},{type:"bigdog",count:8,gap:1.0},{type:"bat",count:10,gap:0.5}],
-  [{type:"mouse",count:20,gap:0.3},{type:"bigdog",count:6,gap:1.1},{type:"boss",count:1,gap:1}],
+  [{type:"bigdog",count:4,gap:1.6},{type:"ghost",count:5,gap:0.7},{type:"mouse",count:12,gap:0.4}],
+  [{type:"ghost",count:8,gap:0.5},{type:"shielddog",count:4,gap:1.1},{type:"bigdog",count:4,gap:1.2}],
+  [{type:"shielddog",count:6,gap:0.8},{type:"ghost",count:10,gap:0.4},{type:"bigdog",count:8,gap:1.0}],
+  [{type:"ghost",count:12,gap:0.3},{type:"shielddog",count:6,gap:0.9},{type:"bigdog",count:6,gap:1.1},{type:"boss",count:1,gap:1}],
 ];
 
 // ---------------------------------------------------------------------
@@ -336,11 +353,29 @@ let gameSpeed = 1, paused = false, muted = false;
 let mouse = {x:-99,y:-99};
 let shake = 0, hurtFlash = 0;   // 화면 흔들림 / 피격(우리집) 붉은 섬광
 
+// 난이도
+const DIFFS = {
+  easy:   {name:"쉬움",   hpMul:0.8,  money:220, lives:20, col:"#54d27a"},
+  normal: {name:"보통",   hpMul:1.0,  money:175, lives:15, col:"#4fa9ff"},
+  hard:   {name:"어려움", hpMul:1.4,  money:140, lives:12, col:"#e0707a"},
+};
+let difficulty = "normal";
+
+// 필살기(액티브 스킬)
+const SKILLS = {
+  meteor:   {name:"불벼락", ico:"🔥", cd:18, radius:95, damage:150, col:"#ff7a2a"},
+  blizzard: {name:"눈보라", ico:"❄️", cd:24, slow:0.35, time:4},
+};
+let skillCd = {meteor:0, blizzard:0};
+let pendingSkill = null;   // 'meteor' 사용 대기(클릭할 위치 고르기)
+
 function resetGame() {
-  money = 175; lives = 15; waveIndex = 0; state = "build";
+  const d = DIFFS[difficulty];
+  money = d.money; lives = d.lives; waveIndex = 0; state = "build";
   enemies = []; projectiles = []; effects = []; particles = [];
   selectedShop = null; selectedCat = null;
   shake = 0; hurtFlash = 0;
+  skillCd = {meteor:0, blizzard:0}; pendingSkill = null;
   SLOTS.forEach(s => s.cat = null);
   updateHUD();
 }
@@ -468,8 +503,10 @@ function stopBgm() {
 // ---------------------------------------------------------------------
 function spawnEnemy(type) {
   const t = ENEMY_TYPES[type];
+  const hp = Math.round(t.hp * DIFFS[difficulty].hpMul);
   enemies.push({
-    type, ...t, hp: t.hp, maxHp: t.hp,
+    type, ...t, hp, maxHp: hp,
+    armor: t.armor || 0, shield: t.shield || 0, maxShield: t.shield || 0, flying: !!t.flying,
     x: WAYPOINTS[0].x, y: WAYPOINTS[0].y,
     wp: 1, traveled: 0, slowTimer: 0, slowFactor: 1, dead: false,
     wob: Math.random() * 6.28, flash: 0, face: 1,
@@ -500,11 +537,18 @@ function updateEnemy(e, dt) {
 
 function damageEnemy(e, dmg) {
   if (e.dead) return;
-  e.hp -= dmg;
+  let real = Math.max(1, dmg - (e.armor || 0));   // 갑옷이 데미지를 깎음
   e.flash = 0.1;                 // 맞으면 하얗게 번쩍
+  if (e.shield > 0) {            // 보호막을 먼저 깎음(넘치면 체력으로)
+    e.shield -= real;
+    if (e.shield < 0) { e.hp += e.shield; e.shield = 0;
+      spawnParticles(e.x, e.y, 8, {color:"#9be8ff", speed:120, size:2.2, life:0.35}); }
+  } else {
+    e.hp -= real;
+  }
   // 떠오르는 데미지 숫자
   effects.push({type:"dmg", x:e.x + (Math.random()-0.5)*10, y:e.y - 6, t:0, life:0.55,
-    val:dmg, big:dmg >= 40});
+    val:real, big:real >= 40});
   if (e.hp <= 0) {
     e.dead = true;
     money += e.reward;
@@ -557,16 +601,27 @@ function fire(c, target) {
   const sx = sfx[c.type]; if (sx) beep(sx[0], sx[1], sx[2], 0.03);
 }
 
+// 타겟 우선순위에서 '더 좋은' 후보인지 비교
+function betterTarget(mode, e, best) {
+  if (!best) return true;
+  if (mode === "last")   return e.traveled < best.traveled;
+  if (mode === "strong") return (e.hp + e.shield) > (best.hp + best.shield);
+  if (mode === "weak")   return (e.hp + e.shield) < (best.hp + best.shield);
+  return e.traveled > best.traveled;        // first(기본): 가장 앞선 적
+}
 function updateCat(c, dt) {
   const s = catStat(c);
+  const air = CAT_BY_ID[c.type].air;        // 비행 적을 칠 수 있나?
+  const mode = c.targeting || "first";
   c.cd -= dt;
   if (c.firePop > 0) c.firePop -= dt;        // 발사 점프 애니메이션 타이머
-  // 사거리 안에서 '가장 앞서간' 적을 노립니다.
-  let best = null, bestT = -1;
+  // 사거리 안에서 우선순위에 맞는 적을 고릅니다.
+  let best = null;
   for (const e of enemies) {
     if (e.dead) continue;
-    const d = Math.hypot(e.x - c.x, e.y - c.y);
-    if (d <= s.range && e.traveled > bestT) { best = e; bestT = e.traveled; }
+    if (e.flying && !air) continue;          // 지상 전용 고양이는 비행 적 무시
+    if (Math.hypot(e.x - c.x, e.y - c.y) > s.range) continue;
+    if (betterTarget(mode, e, best)) best = e;
   }
   c.target = best;
   if (best) c.face = Math.sign(best.x - c.x) || c.face || 1;
@@ -607,6 +662,36 @@ function updateProjectile(p, dt) {
   } else {
     p.x += dx / d * step; p.y += dy / d * step;
   }
+}
+
+// ===== 필살기 시전 =====
+function castMeteor(x, y) {
+  const sk = SKILLS.meteor;
+  for (const e of enemies) {
+    if (e.dead) continue;
+    if (Math.hypot(e.x - x, e.y - y) <= sk.radius) damageEnemy(e, sk.damage);
+  }
+  effects.push({type:"flash", x, y, t:0, life:0.3, r:sk.radius});
+  effects.push({type:"ring",  x, y, t:0, life:0.4, r:sk.radius});
+  spawnParticles(x, y, 30, {color:"#ffb24a", speed:240, size:4, life:0.6, grav:140});
+  spawnParticles(x, y, 16, {color:"#ff5a2a", speed:180, size:4, life:0.5, grav:100});
+  spawnParticles(x, y, 10, {color:"#cfcfcf", speed:70, size:7, life:0.8, lift:40, grow:18, kind:"smoke"});
+  shake = Math.min(14, shake + 11);
+  beep(90, 0.25, "sawtooth", 0.07);
+  skillCd.meteor = sk.cd;
+}
+function castBlizzard() {
+  const sk = SKILLS.blizzard;
+  for (const e of enemies) {
+    if (e.dead) continue;
+    e.slowTimer = Math.max(e.slowTimer, sk.time); e.slowFactor = sk.slow;
+  }
+  for (let i = 0; i < 40; i++)
+    spawnParticles(Math.random()*FIELD_W, Math.random()*FIELD_H - 20, 1,
+      {color:"#dff4ff", speed:20, size:2.6, life:1.0, grav:60});
+  effects.push({type:"frost", x:0, y:0, t:0, life:0.6});
+  beep(500, 0.18, "sine", 0.06); beep(380, 0.22, "sine", 0.05);
+  skillCd.blizzard = sk.cd;
 }
 
 // ---------------------------------------------------------------------
@@ -670,6 +755,10 @@ function loop(now) {
   }
   shake = Math.max(0, shake - dt * 40);          // 화면 흔들림 잦아들기
   hurtFlash = Math.max(0, hurtFlash - dt * 2);
+  if (!paused) {                                 // 필살기 재사용 대기시간
+    skillCd.meteor = Math.max(0, skillCd.meteor - dt);
+    skillCd.blizzard = Math.max(0, skillCd.blizzard - dt);
+  }
   render();
   requestAnimationFrame(loop);
 }
@@ -709,6 +798,13 @@ function render() {
   for (const f of effects) drawEffect(f);
   // 배치 미리보기(상점에서 고른 상태로 빈 칸에 마우스 올림)
   if (selectedShop) drawPlacePreview();
+  // 불벼락 조준 표시
+  if (pendingSkill === "meteor") {
+    drawRange(mouse.x, mouse.y, SKILLS.meteor.radius, "#ff7a2a");
+    ctx.strokeStyle = "#ff7a2a"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(mouse.x-10, mouse.y); ctx.lineTo(mouse.x+10, mouse.y);
+    ctx.moveTo(mouse.x, mouse.y-10); ctx.lineTo(mouse.x, mouse.y+10); ctx.stroke();
+  }
 
   ctx.restore();
 
@@ -1094,18 +1190,21 @@ function drawEnemy(e) {
   const grid = ENEMY_GRIDS[e.art];
   const gw = grid[0].length, gh = grid.length, px = e.px;
   const wob = Math.sin(e.wob) * 1.5;
+  const fly = e.flying ? -16 + Math.sin(e.wob*0.5)*2 : 0;   // 비행 적은 떠 있음
 
   // 바닥 그림자 (뒤집지 않음, 원래 자리)
-  ctx.fillStyle = "rgba(0,0,0,.16)";
-  ctx.beginPath(); ctx.ellipse(e.x, e.y + gh*px*0.42, gw*px*0.34, px*1.4, 0, 0, 6.29); ctx.fill();
+  ctx.fillStyle = e.flying ? "rgba(0,0,0,.10)" : "rgba(0,0,0,.16)";
+  ctx.beginPath(); ctx.ellipse(e.x, e.y + gh*px*0.42, gw*px*(e.flying?0.26:0.34), px*1.2, 0, 0, 6.29); ctx.fill();
 
   // 몸+장식은 '가는 방향'으로 좌우 반전해서 그립니다.
   ctx.save();
-  ctx.translate(e.x, e.y + wob);
+  ctx.translate(e.x, e.y + wob + fly);
   ctx.scale(e.face || 1, 1);
+  if (e.style === "ghost") ctx.globalAlpha = 0.82;             // 유령은 반투명
   decorateEnemyBehind(e);                       // 박쥐 날개·꼬리 등 (뒤)
   drawSprite(grid, enemyPalette(e), 0, 0, px);
   decorateEnemyFront(e);                         // 눈썹·소품 등 (앞)
+  ctx.globalAlpha = 1;
   if (e.slowTimer > 0) {                         // 얼음(느려짐) 표시
     ctx.globalAlpha = 0.35; drawSprite(grid, ICE_PAL, 0, 0, px); ctx.globalAlpha = 1;
     ctx.fillStyle = "#ffffff";
@@ -1117,12 +1216,22 @@ function drawEnemy(e) {
   }
   ctx.restore();
 
+  // 보호막(방패) 거품
+  if (e.shield > 0) {
+    const a = 0.25 + 0.4*(e.shield/e.maxShield), rr = gw*px*0.55 + 5;
+    ctx.strokeStyle = `rgba(120,220,255,${a})`; ctx.fillStyle = `rgba(120,220,255,${a*0.22})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(e.x, e.y + wob + fly - gh*px*0.05, rr, 0, 6.29); ctx.fill(); ctx.stroke();
+  }
   // 체력바 (뒤집지 않음)
-  if (e.hp < e.maxHp) {
-    const w = Math.max(26, gw*px*0.7), bx = e.x - w/2, by = e.y - gh*px*0.6 - 6;
+  if (e.hp < e.maxHp || e.shield > 0) {
+    const w = Math.max(26, gw*px*0.7), bx = e.x - w/2, by = e.y + fly - gh*px*0.6 - 6;
     ctx.fillStyle = "#2a1f3a"; ctx.fillRect(bx-1, by-1, w+2, 6);
     ctx.fillStyle = "#e74c4c"; ctx.fillRect(bx, by, w, 4);
     ctx.fillStyle = "#5ee06a"; ctx.fillRect(bx, by, w * Math.max(0,e.hp)/e.maxHp, 4);
+    if (e.maxShield > 0) {   // 방패 바(파랑)
+      ctx.fillStyle = "#7fd0ff"; ctx.fillRect(bx, by-4, w * Math.max(0,e.shield)/e.maxShield, 3);
+    }
   }
 }
 
@@ -1177,6 +1286,9 @@ function decorateEnemyFront(e) {
     ctx.fillStyle = "#ffffff";
     ctx.beginPath(); ctx.moveTo(-3, 6); ctx.lineTo(-1, 6); ctx.lineTo(-2, 10); ctx.closePath(); ctx.fill();
     ctx.beginPath(); ctx.moveTo(1, 6); ctx.lineTo(3, 6); ctx.lineTo(2, 10); ctx.closePath(); ctx.fill();
+  } else if (e.style === "ghost") {              // 유령 입(오~)
+    ctx.fillStyle = "#6a4a9a";
+    ctx.beginPath(); ctx.ellipse(0, 6, 2.4, 3, 0, 0, 6.29); ctx.fill();
   } else {                                        // 강아지 계열 = 짓궂은 눈썹
     ctx.strokeStyle = e.outline; ctx.lineWidth = 2; ctx.lineCap = "round";
     const ey = -px*3;
@@ -1228,6 +1340,9 @@ function drawEffect(f) {
     grd.addColorStop(0, "#fffde0"); grd.addColorStop(0.5, "#ffd24a"); grd.addColorStop(1, "rgba(255,180,60,0)");
     ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(f.x, f.y, f.r*(0.6+k), 0, 6.29); ctx.fill();
     ctx.globalAlpha = 1;
+  } else if (f.type === "frost") {          // 눈보라 전체 섬광
+    ctx.globalAlpha = (1 - k) * 0.4; ctx.fillStyle = "#aee8ff";
+    ctx.fillRect(0, 0, FIELD_W, FIELD_H); ctx.globalAlpha = 1;
   } else if (f.type === "dmg") {            // 떠오르는 데미지 숫자
     ctx.globalAlpha = Math.min(1, 2.2 - 2.2*k); ctx.textAlign = "center";
     ctx.font = `bold ${f.big ? 20 : 14}px sans-serif`;
@@ -1279,6 +1394,11 @@ canvas.addEventListener("click", ev => {
   const r = canvas.getBoundingClientRect();
   const mx = (ev.clientX - r.left) * (FIELD_W / r.width);
   const my = (ev.clientY - r.top) * (FIELD_H / r.height);
+  // 불벼락 조준 중이면 그 자리에 떨어뜨림
+  if (pendingSkill === "meteor") {
+    if (skillCd.meteor <= 0) castMeteor(mx, my);
+    pendingSkill = null; updateHUD(); return;
+  }
   // 가장 가까운 슬롯 찾기
   let near = null, nd = 9999;
   for (const s of SLOTS) {
@@ -1293,7 +1413,7 @@ canvas.addEventListener("click", ev => {
     if (money >= selectedShop.cost) {
       money -= selectedShop.cost;
       near.cat = { type: selectedShop.id, x: near.x, y: near.y, slot: near, cd: 0, face: 1,
-                   level: 1, invested: selectedShop.cost };
+                   level: 1, invested: selectedShop.cost, targeting: "first" };
       beep(440, 0.08, "square", 0.05);
       selectedCat = near.cat; updateSelBox();
       updateHUD(); refreshShop();
@@ -1315,7 +1435,7 @@ function speedStars(cd) {
   return "★".repeat(n) + "☆".repeat(5 - n);
 }
 function statLine(t) {
-  return `🎯${t.range}　⚔️${t.damage}　⚡${speedStars(t.cooldown)}`;
+  return `🎯${t.range}　⚔️${t.damage}　⚡${speedStars(t.cooldown)}　${t.air?"✈️":"🚫✈️"}`;
 }
 // 가격대로 등급(희귀도) 색을 정해 카드 느낌을 줍니다.
 function rarity(cost) {
@@ -1360,14 +1480,23 @@ function updateSelBox() {
   const cost = upgradeCost(c);
   const canUp = !maxed && money >= cost;
   box.style.display = "block";
+  const TGT = {first:"맨앞", last:"맨뒤", strong:"강한적", weak:"약한적"};
+  const bs = "border:none;border-radius:8px;padding:7px 4px;font-size:12px;font-weight:bold;cursor:pointer;color:#1b1530;";
+  const extra = `${s.splash?"💥범위 ":""}${s.slow?"🧊슬로우 ":""}${t.air?"<span style='color:#9be0ff'>✈️비행</span>":"<span style='color:#9aa0aa'>🚫비행</span>"}`;
   box.innerHTML = `<b>${t.ico} ${t.name}</b> <span style="color:#ffd24a">Lv.${c.level} ${lvStars}</span><br>
-    🎯 사거리 ${Math.round(s.range)} · ⚔️ 공격력 ${s.damage}<br>
-    ⚡ 연사 ${speedStars(s.cooldown)}<br>
-    ${s.splash?("💥 범위공격 "+s.splash+"<br>"):""}${s.slow?("🧊 느리게 만듦<br>"):""}
-    <button class="big" id="upBtn" ${canUp?"":"disabled"} style="width:100%;margin-top:6px;background:${maxed?'#4a5560':'#ffd24a'}">
-      ${maxed ? "⭐ 최고 레벨(MAX)" : `⬆ 업그레이드 → Lv.${c.level+1} (💰${cost})`}</button>
-    <button class="big" id="sellBtn">↩ 판매 (+💰${Math.floor(c.invested*0.6)})</button>`;
+    🎯${Math.round(s.range)} · ⚔️${s.damage} · ⚡${speedStars(s.cooldown)}<br>${extra}
+    <button id="tgtBtn" style="${bs}width:100%;margin-top:6px;background:#6a5aa8;color:#fff">🎯 우선순위: ${TGT[c.targeting||"first"]}</button>
+    <div style="display:flex;gap:5px;margin-top:5px">
+      <button id="upBtn" ${canUp?"":"disabled"} style="${bs}flex:1.4;background:${maxed?'#4a5560':'#ffd24a'};color:${maxed?'#9aa':'#1b1530'}">
+        ${maxed ? "⭐MAX" : `⬆ Lv.${c.level+1} 💰${cost}`}</button>
+      <button id="sellBtn" style="${bs}flex:1;background:#e06a6a;color:#fff">↩💰${Math.floor(c.invested*0.6)}</button>
+    </div>`;
 
+  document.getElementById("tgtBtn").onclick = () => {
+    const order = ["first","last","strong","weak"];
+    c.targeting = order[(order.indexOf(c.targeting||"first") + 1) % order.length];
+    updateSelBox(); beep(440,0.04,"square",0.04);
+  };
   const upBtn = document.getElementById("upBtn");
   if (upBtn && canUp) upBtn.onclick = () => {
     money -= cost; c.invested += cost; c.level++;
@@ -1398,8 +1527,25 @@ function updateHUD() {
       if (!upBtn.onclick && can) updateSelBox(); // 비활성→활성 시 핸들러 복구
     }
   }
+  updateSkillButtons();
   refreshShop();
 }
+function updateSkillButtons() {
+  [["skillMeteor","meteor"], ["skillBlizzard","blizzard"]].forEach(([id, key]) => {
+    const b = document.getElementById(id); const sk = SKILLS[key]; const cd = skillCd[key];
+    b.disabled = !(cd <= 0 && state === "wave" && !paused);
+    b.classList.toggle("armed", key === "meteor" && pendingSkill === "meteor");
+    b.textContent = cd > 0 ? `${sk.ico} ${Math.ceil(cd)}초` : `${sk.ico} ${sk.name}`;
+  });
+}
+document.getElementById("skillMeteor").onclick = () => {
+  if (skillCd.meteor <= 0 && state === "wave")
+    pendingSkill = (pendingSkill === "meteor") ? null : "meteor";
+  updateSkillButtons();
+};
+document.getElementById("skillBlizzard").onclick = () => {
+  if (skillCd.blizzard <= 0 && state === "wave") { castBlizzard(); updateHUD(); }
+};
 
 document.getElementById("startWave").onclick = startWave;
 document.getElementById("speedBtn").onclick = (e) => {
@@ -1427,31 +1573,52 @@ document.getElementById("soundBtn").onclick = (e) => {
 // ---------------------------------------------------------------------
 const overlay = document.getElementById("overlay");
 const overlayBtn = document.getElementById("overlayBtn");
+const diffRow = document.getElementById("diffRow");
+
+// 난이도 선택 버튼을 그립니다 (시작/다시하기 화면)
+function buildDiffButtons() {
+  diffRow.innerHTML = "";
+  for (const key of ["easy","normal","hard"]) {
+    const d = DIFFS[key];
+    const b = document.createElement("button");
+    b.style.background = d.col;
+    b.innerHTML = `${d.name}<br><span style="font-size:11px;font-weight:normal">❤️${d.lives} 💰${d.money}</span>`;
+    b.onclick = () => {
+      difficulty = key;
+      overlay.classList.add("hidden");
+      resetGame(); initAudio(); startBgm();
+    };
+    diffRow.appendChild(b);
+  }
+}
+function showStartScreen() {
+  overlay.classList.remove("hidden");
+  overlay.querySelector("h2").textContent = "🐱 고양이 영웅 디펜스";
+  overlay.querySelector("p").innerHTML = "밀려오는 군단을 막아라!<br>난이도를 골라 시작하세요.";
+  diffRow.style.display = "flex";
+  buildDiffButtons();
+}
 function showOverlay(kind) {
   overlay.classList.remove("hidden");
+  diffRow.style.display = "flex";
   const h = overlay.querySelector("h2"), p = overlay.querySelector("p");
   if (kind === "win") {
     h.textContent = "🎉 승리! 🎉";
-    p.innerHTML = "모든 웨이브를 막아냈어요!<br>우리집을 지킨 고양이 영웅들 만세! 🐱";
-    overlayBtn.textContent = "다시하기"; beep(523,0.1); beep(659,0.1); beep(784,0.15);
+    p.innerHTML = "모든 웨이브를 막아냈어요!<br>다시 도전할 난이도를 고르세요. 🐱";
+    beep(523,0.1); beep(659,0.1); beep(784,0.15);
   } else if (kind === "lose") {
     h.textContent = "💥 패배...";
-    p.innerHTML = "적들이 우리집을 점령했어요.<br>고양이를 더 일찍, 더 많이 배치해보자!";
-    overlayBtn.textContent = "다시하기";
+    p.innerHTML = "적들이 우리집을 점령했어요.<br>난이도를 골라 다시 도전! 🐾";
   }
+  buildDiffButtons();
 }
-overlayBtn.onclick = () => {
-  overlay.classList.add("hidden");
-  resetGame();
-  initAudio();
-  startBgm();          // 게임 시작과 함께 배경음악 ON (사용자 클릭 = 자동재생 허용)
-};
 
 // ---------------------------------------------------------------------
 // 16) 시작!
 // ---------------------------------------------------------------------
 buildShop();
 resetGame();
+showStartScreen();      // 난이도 선택 화면부터
 requestAnimationFrame(loop);
 </script>
 </body>
