@@ -16,6 +16,7 @@
   }
   #wrap {
     display: flex;
+    align-items: flex-start;   /* 패널 내용이 길어져도 캔버스가 세로로 안 늘어나게 */
     gap: 0;
     width: 960px;
     max-width: 100%;
@@ -29,10 +30,14 @@
   /* 게임 화면(캔버스)은 점(픽셀)이 또렷하게 보이도록 설정 */
   canvas {
     display: block;
+    width: 720px;            /* 표시 크기를 고정해 찌그러짐 방지 */
+    height: 600px;
     image-rendering: pixelated;
     image-rendering: crisp-edges;
     background: #6fb24a;
   }
+  /* 패널 높이를 캔버스와 똑같이 고정 (내용이 많으면 스크롤) */
+  #panel { height: 600px; overflow-y: auto; }
   /* ===== 오른쪽 상점/정보 패널 ===== */
   #panel {
     width: 240px;
@@ -70,6 +75,7 @@
   .catbtn .nm { font-size: 13px; font-weight: bold; }
   .catbtn .cost { font-size: 12px; color: #ffd24a; }
   .catbtn .desc { font-size: 11px; color: #c9bdf0; }
+  .catbtn .stats { font-size: 11px; color: #ffd27a; margin-top: 2px; letter-spacing: -0.3px; }
   button.big {
     border: none; border-radius: 10px; padding: 10px;
     font-size: 15px; font-weight: bold; cursor: pointer; color: #1b1530;
@@ -178,21 +184,25 @@ const SLOTS = [
 // 3) 영웅 고양이 종류 - 비쌀수록 강하고 특별해요!
 // ---------------------------------------------------------------------
 const CAT_TYPES = [
+  // 값 차별화 원칙:
+  //  싼 고양이 = 짧은 사거리·낮은 데미지·빠른 연사 (잔손질)
+  //  비싼 고양이 = 긴 사거리 / 강한 한 방 / 특수효과 (전략 무기)
+  //  shape = 발사체 모양:  fish / dart / snowflake / fireball / orb
   { id:"basic",  name:"냥냥이",     ico:"🐱", cost:50,  body:"#f4a03f", outline:"#7a4a14",
-    range:95,  damage:8,  cooldown:0.45, projSpeed:380, proj:"#ffd27a",
-    desc:"빠른 공격, 든든한 기본" },
-  { id:"sniper", name:"검은 도둑냥", ico:"⚫", cost:130, body:"#3c3a4a", outline:"#16151f",
-    range:235, damage:42, cooldown:1.3,  projSpeed:640, proj:"#b9b0ff",
-    desc:"사거리 길고 한 방이 셈" },
-  { id:"snow",   name:"눈송이냥",   ico:"❄️", cost:160, body:"#83d2ff", outline:"#2f7fb0",
-    range:120, damage:6,  cooldown:0.7,  projSpeed:420, proj:"#e6f7ff",
-    slow:0.45, slowTime:1.8, desc:"적을 느리게 얼려요" },
-  { id:"lion",   name:"사자 갈기냥", ico:"🦁", cost:220, body:"#e8b13a", outline:"#8a5e10",
-    range:110, damage:16, cooldown:0.9,  projSpeed:330, proj:"#ffcf52",
-    splash:58, desc:"범위 공격! 여러 적 동시 타격" },
-  { id:"tiger",  name:"대장 호랑냥", ico:"🐯", cost:380, body:"#f0892a", outline:"#7a3a0a",
-    range:150, damage:72, cooldown:0.6,  projSpeed:520, proj:"#ffb24a",
-    splash:38, desc:"최강 데미지의 보스급 고양이" },
+    range:90,  damage:7,  cooldown:0.40, projSpeed:380, proj:"#ffd27a",
+    shape:"fish", desc:"물고기🐟를 던져요. 짧은 사거리·빠른 연사" },
+  { id:"sniper", name:"검은 도둑냥", ico:"⚫", cost:140, body:"#3c3a4a", outline:"#16151f",
+    range:260, damage:55, cooldown:1.6,  projSpeed:720, proj:"#cfc6ff",
+    shape:"dart", desc:"발톱 표창🗡️! 사거리 최장·강한 한 방, 느린 연사" },
+  { id:"snow",   name:"눈송이냥",   ico:"❄️", cost:170, body:"#83d2ff", outline:"#2f7fb0",
+    range:130, damage:6,  cooldown:0.80, projSpeed:420, proj:"#e6f7ff",
+    slow:0.40, slowTime:2.0, shape:"snowflake", desc:"눈송이❄️로 적을 꽁꽁 얼려 느리게!" },
+  { id:"lion",   name:"사자 갈기냥", ico:"🦁", cost:240, body:"#e8b13a", outline:"#8a5e10",
+    range:115, damage:18, cooldown:1.0,  projSpeed:330, proj:"#ffcf52",
+    splash:60, shape:"fireball", desc:"불덩이🔥를 쏴 범위로 여러 적 동시 타격" },
+  { id:"tiger",  name:"대장 호랑냥", ico:"🐯", cost:400, body:"#f0892a", outline:"#7a3a0a",
+    range:160, damage:80, cooldown:0.70, projSpeed:540, proj:"#ffb24a",
+    splash:45, shape:"orb", desc:"번개 기운⚡! 강한 데미지+범위, 긴 사거리" },
 ];
 const CAT_BY_ID = Object.fromEntries(CAT_TYPES.map(c => [c.id, c]));
 
@@ -367,9 +377,13 @@ function fire(c, target) {
   projectiles.push({
     x: c.x, y: c.y, target, speed: t.projSpeed, damage: t.damage,
     splash: t.splash || 0, slow: t.slow || 0, slowTime: t.slowTime || 0,
-    color: t.proj, dead: false,
+    color: t.proj, shape: t.shape || "fish", dead: false,
+    angle: 0, spin: Math.random() * 6.28, trail: [],
   });
-  if (t.id === "sniper") beep(880, 0.05, "triangle", 0.03);
+  // 고양이마다 발사 소리도 살짝 다르게
+  const sfx = { basic:[520,0.04,"square"], sniper:[880,0.05,"triangle"],
+                snow:[700,0.05,"sine"], lion:[300,0.06,"sawtooth"], tiger:[200,0.07,"sawtooth"] };
+  const s = sfx[t.id]; if (s) beep(s[0], s[1], s[2], 0.03);
 }
 
 function updateCat(c, dt) {
@@ -392,6 +406,10 @@ function updateProjectile(p, dt) {
   if (!p.target || p.target.dead) { p.dead = true; return; }
   const dx = p.target.x - p.x, dy = p.target.y - p.y, d = Math.hypot(dx, dy);
   const step = p.speed * dt;
+  p.angle = Math.atan2(dy, dx);                 // 날아가는 방향(표창 등에 사용)
+  p.spin += dt * 10;                            // 회전(눈송이 등)
+  p.trail.push({x:p.x, y:p.y});                 // 꼬리 자국(궤적)
+  if (p.trail.length > 6) p.trail.shift();
   if (d <= step + 6) { // 명중!
     if (p.splash > 0) {
       for (const e of enemies) {
@@ -487,11 +505,8 @@ function render() {
   drawPath();
   drawSlots();
 
-  // 총알
-  for (const p of projectiles) {
-    ctx.fillStyle = p.color;
-    ctx.beginPath(); ctx.arc(p.x, p.y, p.splash>0?6:4, 0, 6.29); ctx.fill();
-  }
+  // 발사체 (고양이마다 모양이 달라요)
+  for (const p of projectiles) drawProjectile(p);
   // 적
   for (const e of enemies) drawEnemy(e);
   // 고양이
@@ -571,6 +586,69 @@ function decorateCat(c, t, x, y) {
     ctx.beginPath();
     ctx.moveTo(x-12,y-26); ctx.lineTo(x-12,y-20); ctx.lineTo(x+12,y-20); ctx.lineTo(x+12,y-26);
     ctx.lineTo(x+6,y-22); ctx.lineTo(x,y-28); ctx.lineTo(x-6,y-22); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// 발사체를 고양이 종류(shape)에 맞게 다르게 그립니다.
+function drawProjectile(p) {
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  if (p.shape === "fish") {
+    // 🐟 물고기: 작은 타원 몸통 + 꼬리지느러미
+    ctx.rotate(p.angle);
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.ellipse(0, 0, 6, 4, 0, 0, 6.29); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-5,0); ctx.lineTo(-11,-4); ctx.lineTo(-11,4); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#15151c"; ctx.fillRect(3, -2, 2, 2); // 눈
+
+  } else if (p.shape === "dart") {
+    // 🗡️ 발톱 표창: 길고 빠른 바늘 + 잔상
+    for (let i = 0; i < p.trail.length; i++) {
+      const tp = p.trail[i]; ctx.globalAlpha = (i / p.trail.length) * 0.5;
+      ctx.fillStyle = p.color;
+      ctx.fillRect(tp.x - p.x - 1, tp.y - p.y - 1, 3, 3);
+    }
+    ctx.globalAlpha = 1; ctx.rotate(p.angle);
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.moveTo(10,0); ctx.lineTo(-6,-3); ctx.lineTo(-3,0); ctx.lineTo(-6,3); ctx.closePath(); ctx.fill();
+
+  } else if (p.shape === "snowflake") {
+    // ❄️ 눈송이: 회전하는 6갈래 결정 + 옅은 자국
+    ctx.rotate(p.spin);
+    ctx.strokeStyle = p.color; ctx.lineWidth = 2; ctx.lineCap = "round";
+    for (let a = 0; a < 6; a++) {
+      ctx.rotate(Math.PI / 3);
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,-7); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0,-4); ctx.lineTo(2,-6); ctx.moveTo(0,-4); ctx.lineTo(-2,-6); ctx.stroke();
+    }
+
+  } else if (p.shape === "fireball") {
+    // 🔥 불덩이: 깜빡이는 불꽃 글로우
+    const flick = 5 + Math.sin(p.spin * 3) * 1.5;
+    ctx.globalAlpha = 0.4; ctx.fillStyle = "#ff7a1a";
+    ctx.beginPath(); ctx.arc(0, 0, flick + 3, 0, 6.29); ctx.fill();
+    ctx.globalAlpha = 1; ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(0, 0, flick, 0, 6.29); ctx.fill();
+    ctx.fillStyle = "#fff3b0";
+    ctx.beginPath(); ctx.arc(0, 0, flick - 3, 0, 6.29); ctx.fill();
+
+  } else { // orb (호랑냥) — ⚡ 번개 기운 구슬
+    for (let i = 0; i < p.trail.length; i++) {
+      const tp = p.trail[i]; ctx.globalAlpha = (i / p.trail.length) * 0.4;
+      ctx.fillStyle = "#ffd24a";
+      ctx.beginPath(); ctx.arc(tp.x - p.x, tp.y - p.y, 3, 0, 6.29); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#ff7a1a";
+    ctx.beginPath(); ctx.arc(0, 0, 8, 0, 6.29); ctx.fill();
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(0, 0, 5, 0, 6.29); ctx.fill();
+    // 번개 스파크
+    ctx.strokeStyle = "#fff7d0"; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(-7, -2); ctx.lineTo(-2, 0); ctx.lineTo(-5, 3);
+    ctx.moveTo(7, -3); ctx.lineTo(2, 0); ctx.lineTo(6, 2); ctx.stroke();
   }
   ctx.restore();
 }
@@ -685,6 +763,14 @@ canvas.addEventListener("click", ev => {
 // 14) 오른쪽 패널 UI
 // ---------------------------------------------------------------------
 const shopEl = document.getElementById("shop");
+// 연사 속도를 별(★)로 표현: 쿨다운이 짧을수록 별이 많아요.
+function speedStars(cd) {
+  const n = cd <= 0.45 ? 5 : cd <= 0.6 ? 4 : cd <= 0.85 ? 3 : cd <= 1.2 ? 2 : 1;
+  return "★".repeat(n) + "☆".repeat(5 - n);
+}
+function statLine(t) {
+  return `🎯${t.range}　⚔️${t.damage}　⚡${speedStars(t.cooldown)}`;
+}
 function buildShop() {
   shopEl.innerHTML = "";
   for (const t of CAT_TYPES) {
@@ -692,7 +778,8 @@ function buildShop() {
     b.className = "catbtn"; b.dataset.id = t.id;
     b.innerHTML = `<div class="ico">${t.ico}</div>
       <div class="info"><div class="nm">${t.name}</div>
-      <div class="desc">${t.desc}</div></div>
+      <div class="desc">${t.desc}</div>
+      <div class="stats">${statLine(t)}</div></div>
       <div class="cost">💰${t.cost}</div>`;
     b.addEventListener("click", () => {
       selectedShop = (selectedShop && selectedShop.id === t.id) ? null : t;
@@ -714,8 +801,9 @@ function updateSelBox() {
   const t = CAT_BY_ID[selectedCat.type];
   box.style.display = "block";
   box.innerHTML = `<b>${t.ico} ${t.name}</b><br>
-    공격력 ${t.damage} · 사거리 ${t.range}<br>
-    ${t.splash?("범위공격 "+t.splash+" · "):""}${t.slow?("느리게 만듦 · "):""}
+    🎯 사거리 ${t.range} · ⚔️ 공격력 ${t.damage}<br>
+    ⚡ 연사 ${speedStars(t.cooldown)}<br>
+    ${t.splash?("💥 범위공격 "+t.splash+"<br>"):""}${t.slow?("🧊 느리게 만듦<br>"):""}
     <button class="big" id="sellBtn">↩ 판매 (+💰${Math.floor(t.cost*0.6)})</button>`;
   document.getElementById("sellBtn").onclick = () => {
     money += Math.floor(t.cost * 0.6);
