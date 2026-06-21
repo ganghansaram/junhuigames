@@ -27,13 +27,11 @@
     box-shadow: 0 10px 40px rgba(0,0,0,.5);
     position: relative;
   }
-  /* 게임 화면(캔버스)은 점(픽셀)이 또렷하게 보이도록 설정 */
+  /* 게임 화면(캔버스) — 매끈한 벡터 카툰을 위해 부드럽게 렌더링 */
   canvas {
     display: block;
     width: 720px;            /* 표시 크기를 고정해 찌그러짐 방지 */
     height: 600px;
-    image-rendering: pixelated;
-    image-rendering: crisp-edges;
     background: #6fb24a;
   }
   /* 패널 높이를 캔버스와 똑같이 고정 (내용이 많으면 스크롤) */
@@ -166,7 +164,7 @@
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
-ctx.imageSmoothingEnabled = false; // 픽셀이 또렷하게 보이도록
+ctx.imageSmoothingEnabled = true; // 벡터 카툰을 부드럽게
 
 const FIELD_W = 720, FIELD_H = 600;
 
@@ -338,6 +336,81 @@ function drawSprite(grid, palette, cx, cy, px) {
       ctx.fillStyle = col;
       ctx.fillRect(ox + c * px, oy + r * px, px, px);
     }
+  }
+}
+
+// ===== 매끈한 벡터 캐릭터(두꺼운 외곽선 카툰) =====
+// 작은 도형 헬퍼: 채우고, 필요하면 외곽선까지.
+function vEll(x, y, rx, ry, fill, outline, lw) {
+  ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, 6.29);
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (outline) { ctx.strokeStyle = outline; ctx.lineWidth = lw || 2.6; ctx.stroke(); }
+}
+function vTri(x1,y1,x2,y2,x3,y3, fill, outline, lw) {
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.lineTo(x3,y3); ctx.closePath();
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (outline) { ctx.strokeStyle = outline; ctx.lineWidth = lw || 2.6; ctx.stroke(); }
+}
+
+// 고양이 몸(머리·귀·눈·몸통). 소품은 decorateBehind/Front 가 따로 그립니다.
+function drawCatBody(t, x, y) {
+  const O = t.outline, B = t.body, L = t.light, D = t.markings;
+  ctx.lineJoin = "round"; ctx.lineCap = "round";
+  // 몸통
+  vEll(x, y+13, 13, 12, B, O, 3);
+  vEll(x, y+16, 7.5, 7, L, null);
+  // 귀(삼각형) — 머리보다 먼저 그려 머리에 밑동이 가려지게
+  vTri(x-11,y-25, x-17,y-12, x-3,y-13, B, O, 3);
+  vTri(x+11,y-25, x+17,y-12, x+3,y-13, B, O, 3);
+  vTri(x-11,y-22, x-14,y-14, x-7,y-14, "#ff9bb0", null);
+  vTri(x+11,y-22, x+14,y-14, x+7,y-14, "#ff9bb0", null);
+  // 머리
+  vEll(x, y-3, 16, 14, B, O, 3);
+  // 줄무늬(냥냥이/호랑냥)
+  if (D && D !== B) {
+    ctx.strokeStyle = D; ctx.lineWidth = 2.6;
+    [-6,0,6].forEach(dx => { ctx.beginPath(); ctx.moveTo(x+dx, y-15); ctx.lineTo(x+dx, y-9); ctx.stroke(); });
+  }
+  // 볼(밝은색)
+  vEll(x, y+1, 9, 6, L, null);
+  // 눈 + 하이라이트
+  vEll(x-6, y-3, 3.1, 4, "#15151c", null);
+  vEll(x+6, y-3, 3.1, 4, "#15151c", null);
+  ctx.fillStyle = "#fff";
+  vEll(x-5, y-5, 1.3, 1.5, "#fff", null); vEll(x+7, y-5, 1.3, 1.5, "#fff", null);
+  // 코
+  vTri(x-2.4, y, x+2.4, y, x, y+3, "#ff9bb0", null);
+}
+
+// 적 몸(쥐/강아지/박쥐). tint를 주면 그 색 실루엣만(피격 번쩍·얼음용).
+function drawEnemyBody(e, px, tint) {
+  const u = px, O = e.outline, sk = !tint;
+  const B = tint || e.body, L = tint || e.light, D = tint || e.dark, EYE = tint || e.eye;
+  ctx.lineJoin = "round"; ctx.lineCap = "round";
+  const ell = (cx,cy,rx,ry,f) => vEll(cx*u, cy*u, rx*u, ry*u, f, sk ? O : null, 2.2);
+  const dot = (cx,cy,r,f) => { ctx.fillStyle = f; ctx.beginPath(); ctx.ellipse(cx*u, cy*u, r*u, r*u, 0, 0, 6.29); ctx.fill(); };
+
+  if (e.art === "mouse") {
+    ell(0,2.2, 4, 4, B);
+    if (sk) ell(0,3.2, 2.3, 2.3, L);
+    ell(-3.4,-4.2, 2.1, 2.1, B); ell(3.4,-4.2, 2.1, 2.1, B);       // 큰 귀
+    if (sk) { dot(-3.4,-4.2, 1.1, "#ff9bb0"); dot(3.4,-4.2, 1.1, "#ff9bb0"); }
+    ell(0,-1, 4.4, 3.8, B);
+    if (sk) { dot(-1.6,-1, 0.95, EYE); dot(1.6,-1, 0.95, EYE);
+      dot(-1.3,-1.3, 0.35, "#fff"); dot(1.9,-1.3, 0.35, "#fff"); dot(0,0.7, 0.7, "#ff9bb0"); }
+  } else if (e.art === "dog") {
+    ell(-4.6,0.2, 1.7, 3, D); ell(4.6,0.2, 1.7, 3, D);             // 늘어진 귀
+    ell(0,2.7, 5, 4.6, B);
+    if (sk) ell(0,3.7, 3, 3, L);
+    ell(0,-1, 5, 4.3, B);
+    if (sk) { ell(0,1.1, 2.7, 2.1, L); dot(-2,-1.4, 1, EYE); dot(2,-1.4, 1, EYE);
+      dot(0,0.5, 1, "#15151c"); }
+  } else { // bat / ghost
+    ell(0,1, 3.6, 3.4, B);
+    vTri(-2.6*u,-4.8*u, -0.8*u,-2.0*u, -3.8*u,-2.2*u, B, sk?O:null, 2.2);
+    vTri(2.6*u,-4.8*u, 0.8*u,-2.0*u, 3.8*u,-2.2*u, B, sk?O:null, 2.2);
+    if (sk) { dot(-1.8,-0.6, 1.1, "#fff"); dot(1.8,-0.6, 1.1, "#fff");
+      dot(-1.8,-0.5, 0.6, EYE); dot(1.8,-0.5, 0.6, EYE); }
   }
 }
 
@@ -859,11 +932,10 @@ function drawTopBar() {
     const sum = waveSummary(waveIndex);
     let ix = bx+158;
     for (const type of Object.keys(sum)) {
-      const grid = ENEMY_GRIDS[ENEMY_TYPES[type].art];
-      drawSprite(grid, enemyPalette(ENEMY_TYPES[type]), ix, by+bh/2, 1.5);
-      ctx.fillStyle = "#fff"; ctx.font = "bold 12px sans-serif"; ctx.textAlign = "left";
-      ctx.fillText("×" + sum[type], ix+14, by+bh/2);
-      ix += 52;
+      ctx.save(); ctx.translate(ix, by+bh/2+1); drawEnemyBody(ENEMY_TYPES[type], 1.7); ctx.restore();
+      ctx.fillStyle = "#fff"; ctx.font = "bold 12px sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+      ctx.fillText("×" + sum[type], ix+12, by+bh/2);
+      ix += 50;
     }
   }
   ctx.restore();
@@ -1010,7 +1082,7 @@ function drawCat(c) {
     ctx.beginPath(); ctx.arc(x, y, 26, 0, 6.29); ctx.fill(); ctx.globalAlpha = 1;
   }
   decorateBehind(t, x, y);                 // 꼬리·갈기·망토 (몸 뒤)
-  drawSprite(CAT_GRID, catPalette(t), x, y, 3);
+  drawCatBody(t, x, y);                     // 매끈한 벡터 고양이
   decorateFront(c, t, x, y);               // 목걸이·가면·왕관 등 (몸 앞)
   // 레벨 별 표시 (머리 위)
   for (let i = 0; i < lvl; i++) {
@@ -1202,17 +1274,15 @@ function drawEnemy(e) {
   ctx.scale(e.face || 1, 1);
   if (e.style === "ghost") ctx.globalAlpha = 0.82;             // 유령은 반투명
   decorateEnemyBehind(e);                       // 박쥐 날개·꼬리 등 (뒤)
-  drawSprite(grid, enemyPalette(e), 0, 0, px);
+  drawEnemyBody(e, px);                          // 매끈한 벡터 적
   decorateEnemyFront(e);                         // 눈썹·소품 등 (앞)
   ctx.globalAlpha = 1;
   if (e.slowTimer > 0) {                         // 얼음(느려짐) 표시
-    ctx.globalAlpha = 0.35; drawSprite(grid, ICE_PAL, 0, 0, px); ctx.globalAlpha = 1;
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(-gw*px*0.3, -gh*px*0.3, 2, 2); ctx.fillRect(gw*px*0.2, gh*px*0.1, 2, 2);
+    ctx.globalAlpha = 0.4; drawEnemyBody(e, px, "#7fd0ff"); ctx.globalAlpha = 1;
   }
   if (e.flash > 0) {                            // 피격 번쩍
-    ctx.globalAlpha = Math.min(1, e.flash / 0.1) * 0.8;
-    drawSprite(grid, WHITE_PAL, 0, 0, px); ctx.globalAlpha = 1;
+    ctx.globalAlpha = Math.min(1, e.flash / 0.1) * 0.85;
+    drawEnemyBody(e, px, "#ffffff"); ctx.globalAlpha = 1;
   }
   ctx.restore();
 
@@ -1370,7 +1440,7 @@ function drawPlacePreview() {
     drawRange(near.x, near.y, selectedShop.range, "#ffd24a");
     ctx.globalAlpha = 0.65;
     decorateBehind(selectedShop, near.x, near.y);
-    drawSprite(CAT_GRID, catPalette(selectedShop), near.x, near.y, 3);
+    drawCatBody(selectedShop, near.x, near.y);
     decorateFront({}, selectedShop, near.x, near.y);
     ctx.globalAlpha = 1;
   }
