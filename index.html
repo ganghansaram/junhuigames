@@ -188,18 +188,23 @@ const CAT_TYPES = [
   //  비싼 고양이 = 긴 사거리 / 강한 한 방 / 특수효과 (전략 무기)
   //  shape = 발사체 모양:  fish / dart / snowflake / fireball / orb
   { id:"basic",  name:"냥냥이",     ico:"🐱", cost:50,  body:"#f4a03f", outline:"#7a4a14",
+    light:"#ffd9a0", markings:"#d4791f",
     range:90,  damage:7,  cooldown:0.40, projSpeed:380, proj:"#ffd27a",
     shape:"fish", desc:"물고기🐟를 던져요. 짧은 사거리·빠른 연사" },
   { id:"sniper", name:"검은 도둑냥", ico:"⚫", cost:140, body:"#3c3a4a", outline:"#16151f",
+    light:"#6a6878", markings:"#3c3a4a",
     range:260, damage:55, cooldown:1.6,  projSpeed:720, proj:"#cfc6ff",
     shape:"dart", desc:"발톱 표창🗡️! 사거리 최장·강한 한 방, 느린 연사" },
   { id:"snow",   name:"눈송이냥",   ico:"❄️", cost:170, body:"#83d2ff", outline:"#2f7fb0",
+    light:"#e8f8ff", markings:"#83d2ff",
     range:130, damage:6,  cooldown:0.80, projSpeed:420, proj:"#e6f7ff",
     slow:0.40, slowTime:2.0, shape:"snowflake", desc:"눈송이❄️로 적을 꽁꽁 얼려 느리게!" },
   { id:"lion",   name:"사자 갈기냥", ico:"🦁", cost:240, body:"#e8b13a", outline:"#8a5e10",
+    light:"#f6dd9a", markings:"#e8b13a",
     range:115, damage:18, cooldown:1.0,  projSpeed:330, proj:"#ffcf52",
     splash:60, shape:"fireball", desc:"불덩이🔥를 쏴 범위로 여러 적 동시 타격" },
   { id:"tiger",  name:"대장 호랑냥", ico:"🐯", cost:400, body:"#f0892a", outline:"#7a3a0a",
+    light:"#ffd9a0", markings:"#3a2206",
     range:160, damage:80, cooldown:0.70, projSpeed:540, proj:"#ffb24a",
     splash:45, shape:"orb", desc:"번개 기운⚡! 강한 데미지+범위, 긴 사거리" },
 ];
@@ -232,21 +237,27 @@ const WAVES = [
 
 // ---------------------------------------------------------------------
 // 6) 픽셀아트 도안 (글자 하나가 점 하나)
-//    o=외곽선, B=몸 색, e=눈, p=분홍(코/귀)
+//    o=외곽선 B=몸 L=밝은배 D=무늬 p=분홍(코/귀안) e=눈동자 w=눈흰자
 // ---------------------------------------------------------------------
+// 모든 고양이가 함께 쓰는 '귀여운 치비' 16x16 도안.
+// 색(B/L/D)과 소품(코드로 그림)을 종류마다 다르게 해서 서로 달라 보이게 합니다.
 const CAT_GRID = [
-  "..o......o..",
-  ".opo....opo.",
-  ".oBpo..opBo.",
-  ".oBBBBBBBBo.",
-  "oBBBBBBBBBBo",
-  "oBBeBBBBeBBo",
-  "oBBBBBBBBBBo",
-  "oBBBBppBBBBo",
-  "oBBBBBBBBBBo",
-  ".oBBBBBBBBo.",
-  "..oBBBBBBo..",
-  "...oooooo...",
+  "................",
+  "..o........o....",
+  ".oBo......oBo...",
+  ".oBpo....oBpo...",
+  "oBBBBBBBBBBBBBBo",
+  "oBBBBDBBDBBDBBBo",
+  "oBBewBBBBBBweBBo",
+  "oBBeeBBBBBBeeBBo",
+  "oBBBBBBppBBBBBBo",
+  "oBBLBBBBBBBBLBBo",
+  "oDBBBBBBBBBBBBDo",
+  ".oBBBBBBBBBBBBo.",
+  "..oBLLLLLLLLBo..",
+  "..oBLLLLLLLLBo..",
+  "..oBBLLLLLLBBo..",
+  "..oBBo....oBBo..",
 ];
 const CRITTER_GRID = [
   "............",
@@ -436,6 +447,7 @@ function fire(c, target) {
 function updateCat(c, dt) {
   const t = CAT_BY_ID[c.type];
   c.cd -= dt;
+  if (c.firePop > 0) c.firePop -= dt;        // 발사 점프 애니메이션 타이머
   // 사거리 안에서 '가장 앞서간' 적을 노립니다.
   let best = null, bestT = -1;
   for (const e of enemies) {
@@ -446,7 +458,7 @@ function updateCat(c, dt) {
   c.target = best;
   // 부드럽게 적 쪽을 바라보게(꼬리 흔들 듯) 살짝 기울임
   if (best) c.face = Math.sign(best.x - c.x) || c.face || 1;
-  if (best && c.cd <= 0) { c.cd = t.cooldown; fire(c, best); }
+  if (best && c.cd <= 0) { c.cd = t.cooldown; c.firePop = 0.16; fire(c, best); }
 }
 
 function updateProjectile(p, dt) {
@@ -604,35 +616,103 @@ function drawRange(x, y, r, color) {
   ctx.restore();
 }
 
+function catPalette(t) {
+  return {o:t.outline, B:t.body, L:t.light, D:t.markings, p:"#ff9bb0", e:"#15151c", w:"#ffffff"};
+}
 function drawCat(c) {
   const t = CAT_BY_ID[c.type];
-  const bob = Math.sin((performance.now()/250) + (c.x+c.y)) * 1.5;
-  const palette = {o:t.outline, B:t.body, e:"#15151c", p:"#ff9bb0"};
-  // 도둑냥은 눈이 빛나게(흰 눈)
-  if (t.id === "sniper") palette.e = "#ffe14a";
-  drawSprite(CAT_GRID, palette, c.x, c.y + bob, 4);
-  decorateCat(c, t, c.x, c.y + bob);
+  const bob = Math.sin((performance.now()/260) + (c.x + c.y)) * 1.2;   // 평소 숨쉬기
+  const hop = (c.firePop > 0) ? -Math.sin((c.firePop / 0.16) * Math.PI) * 5 : 0; // 발사 점프
+  const x = c.x, y = c.y + bob + hop;
+  // 바닥 그림자(흔들리지 않게 원래 위치 기준)
+  ctx.fillStyle = "rgba(0,0,0,.18)";
+  ctx.beginPath(); ctx.ellipse(x, c.y + 22, 15, 4.5, 0, 0, 6.29); ctx.fill();
+  decorateBehind(t, x, y);                 // 꼬리·갈기·망토 (몸 뒤)
+  drawSprite(CAT_GRID, catPalette(t), x, y, 3);
+  decorateFront(c, t, x, y);               // 목걸이·가면·왕관 등 (몸 앞)
 }
 
-function decorateCat(c, t, x, y) {
+// 몸 뒤에 그리는 장식(꼬리, 사자 갈기, 호랑이 망토)
+function decorateBehind(t, x, y) {
   ctx.save();
-  if (t.id === "lion") { // 갈기
-    ctx.fillStyle = "#c98e1e";
-    for (let a=0;a<12;a++){const an=a/12*6.28;ctx.beginPath();
-      ctx.arc(x+Math.cos(an)*22, y+Math.sin(an)*22, 4, 0, 6.29); ctx.fill();}
+  if (t.id === "tiger") {                  // 대장님 망토
+    ctx.fillStyle = "#b3322b";
+    ctx.beginPath();
+    ctx.moveTo(x-14, y+4); ctx.lineTo(x+14, y+4);
+    ctx.lineTo(x+10, y+24); ctx.lineTo(x, y+18); ctx.lineTo(x-10, y+24); ctx.closePath(); ctx.fill();
   }
-  if (t.id === "snow") { // 반짝이는 눈송이
-    ctx.fillStyle = "#ffffff";
-    [[ -16,-18],[16,-14],[18,16]].forEach(([dx,dy])=>{
-      ctx.fillRect(x+dx,y+dy,3,3);});
+  // 꼬리 (오른쪽에서 위로 살랑)
+  const sway = Math.sin(performance.now()/300 + x) * 3;
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  ctx.strokeStyle = t.outline; ctx.lineWidth = 8;
+  ctx.beginPath(); ctx.moveTo(x+12, y+15);
+  ctx.quadraticCurveTo(x+26, y+10, x+27 + sway, y - 6); ctx.stroke();
+  ctx.strokeStyle = t.body; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(x+12, y+15);
+  ctx.quadraticCurveTo(x+26, y+10, x+27 + sway, y - 6); ctx.stroke();
+  // 꼬리 끝 포인트색
+  ctx.fillStyle = t.id === "lion" ? "#8a5e10" : t.light;
+  ctx.beginPath(); ctx.arc(x+27 + sway, y - 6, 3.5, 0, 6.29); ctx.fill();
+
+  if (t.id === "lion") {                   // 풍성한 갈기 (머리 둘레)
+    ctx.fillStyle = "#c9881a";
+    for (let a = 0; a < 14; a++) {
+      const an = a / 14 * 6.28;
+      ctx.beginPath(); ctx.arc(x + Math.cos(an) * 22, (y - 3) + Math.sin(an) * 22, 5, 0, 6.29); ctx.fill();
+    }
+    ctx.fillStyle = "#a86d12";
+    for (let a = 0; a < 14; a++) {
+      const an = (a + 0.5) / 14 * 6.28;
+      ctx.beginPath(); ctx.arc(x + Math.cos(an) * 19, (y - 3) + Math.sin(an) * 19, 3, 0, 6.29); ctx.fill();
+    }
   }
-  if (t.id === "tiger") { // 호랑이 줄무늬 + 작은 왕관
-    ctx.fillStyle = "#5a2a06";
-    ctx.fillRect(x-10,y-14,3,8); ctx.fillRect(x+7,y-14,3,8); ctx.fillRect(x-2,y-16,3,6);
+  ctx.restore();
+}
+
+// 몸 앞에 그리는 장식(소품). 캐릭터를 확실히 구분해줘요.
+function decorateFront(c, t, x, y) {
+  ctx.save();
+  const blush = () => {
+    ctx.fillStyle = "rgba(255,120,140,.45)";
+    ctx.beginPath(); ctx.ellipse(x-10, y+1, 2.6, 1.8, 0, 0, 6.29); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x+10, y+1, 2.6, 1.8, 0, 0, 6.29); ctx.fill();
+  };
+  if (t.id === "basic") {                  // 🔔 빨간 목걸이 + 방울
+    ctx.fillStyle = "#e0473e"; roundRect(x-13, y+8, 26, 5, 2); ctx.fill();
+    ctx.fillStyle = "#ffd24a"; ctx.beginPath(); ctx.arc(x, y+12, 3.6, 0, 6.29); ctx.fill();
+    ctx.fillStyle = "#a9791a"; ctx.fillRect(x-0.6, y+11, 1.2, 3);
+    blush();
+  } else if (t.id === "sniper") {          // 🦝 흰 도둑 눈가면 + 노란 눈
+    ctx.fillStyle = "#f1f1f6"; roundRect(x-14, y-9, 28, 8, 3); ctx.fill();
+    ctx.fillStyle = "#ffe14a";
+    ctx.beginPath(); ctx.ellipse(x-7, y-5, 2.6, 2, 0, 0, 6.29); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x+7, y-5, 2.6, 2, 0, 0, 6.29); ctx.fill();
+    ctx.fillStyle = "#15151c";
+    ctx.fillRect(x-8, y-6, 1.6, 3); ctx.fillRect(x+6.4, y-6, 1.6, 3);
+  } else if (t.id === "snow") {            // 🧣 파란 목도리 + 머리 위 눈결정
+    ctx.fillStyle = "#3aa0e0"; roundRect(x-13, y+8, 26, 6, 3); ctx.fill();
+    ctx.fillRect(x+6, y+12, 5, 9);        // 늘어진 목도리 끝
+    ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1.6; ctx.lineCap = "round";
+    const cx = x, cy = y - 24;
+    for (let a = 0; a < 6; a++) {
+      const an = a / 6 * 6.28;
+      ctx.beginPath(); ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(an) * 5, cy + Math.sin(an) * 5); ctx.stroke();
+    }
+    blush();
+  } else if (t.id === "lion") {            // 늠름한 눈썹
+    ctx.fillStyle = t.outline;
+    ctx.fillRect(x-9, y-8, 5, 2); ctx.fillRect(x+4, y-8, 5, 2);
+  } else if (t.id === "tiger") {           // 👑 왕관 + 송곳니
     ctx.fillStyle = "#ffd24a";
     ctx.beginPath();
-    ctx.moveTo(x-12,y-26); ctx.lineTo(x-12,y-20); ctx.lineTo(x+12,y-20); ctx.lineTo(x+12,y-26);
-    ctx.lineTo(x+6,y-22); ctx.lineTo(x,y-28); ctx.lineTo(x-6,y-22); ctx.closePath(); ctx.fill();
+    ctx.moveTo(x-11, y-15); ctx.lineTo(x-11, y-21); ctx.lineTo(x-6, y-17);
+    ctx.lineTo(x, y-23); ctx.lineTo(x+6, y-17); ctx.lineTo(x+11, y-21);
+    ctx.lineTo(x+11, y-15); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#e0473e"; ctx.beginPath(); ctx.arc(x, y-18, 1.6, 0, 6.29); ctx.fill();
+    ctx.fillStyle = "#ffffff";               // 송곳니
+    ctx.beginPath(); ctx.moveTo(x-4, y+3); ctx.lineTo(x-2, y+3); ctx.lineTo(x-3, y+6); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(x+2, y+3); ctx.lineTo(x+4, y+3); ctx.lineTo(x+3, y+6); ctx.closePath(); ctx.fill();
   }
   ctx.restore();
 }
@@ -757,8 +837,10 @@ function drawPlacePreview() {
   }
   if (near && nd < 40) {
     drawRange(near.x, near.y, selectedShop.range, "#ffd24a");
-    ctx.globalAlpha = 0.6;
-    drawSprite(CAT_GRID, {o:selectedShop.outline, B:selectedShop.body, e:"#15151c", p:"#ff9bb0"}, near.x, near.y, 4);
+    ctx.globalAlpha = 0.65;
+    decorateBehind(selectedShop, near.x, near.y);
+    drawSprite(CAT_GRID, catPalette(selectedShop), near.x, near.y, 3);
+    decorateFront({}, selectedShop, near.x, near.y);
     ctx.globalAlpha = 1;
   }
 }
